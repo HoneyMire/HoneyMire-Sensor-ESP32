@@ -69,7 +69,7 @@ button.danger{background:var(--bad);color:#fff}
 details.section{background:#1c2029;border:1px solid var(--bord);border-radius:8px;margin-bottom:10px;overflow:hidden}
 details.section>summary{cursor:pointer;padding:12px 14px;font-weight:600;color:var(--acc);list-style:none;display:flex;align-items:center;justify-content:space-between;user-select:none}
 details.section>summary::-webkit-details-marker{display:none}
-details.section>summary::after{content:'\xE2\x96\xBE';color:var(--mut);transition:transform .2s;font-size:12px;margin-left:8px}
+details.section>summary::after{content:'▾';color:var(--mut);transition:transform .2s;font-size:12px;margin-left:8px}
 details.section[open]>summary::after{transform:rotate(180deg)}
 details.section>.body{padding:12px 14px;border-top:1px solid var(--bord)}
 .switch{position:relative;display:inline-block;width:46px;height:24px;cursor:pointer;flex:none}
