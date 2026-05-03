@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-SENTINEL = "// HoneyOpus: null-check malloc patch v2\n"
+SENTINEL = "// HoneyOpus: null-check malloc patch v3\n"
 
 
 def patch_file(path: str) -> bool:
@@ -93,6 +93,45 @@ def patch_file(path: str) -> bool:
     for sig, guard in static_guards:
         if sig in new_src and (sig + guard) not in new_src:
             new_src = new_src.replace(sig, sig + guard, 1)
+
+    # Third pass: clamp _tcp_recved_api against the lwIP
+    #   tcp_update_rcv_ann_wnd: new_rcv_ann_wnd <= 0xffff
+    # assert. ESP-IDF lwIP keeps a 16-bit announced receive window; if
+    # AsyncTCP calls tcp_recved() with a size that, added to the current
+    # pcb->rcv_ann_wnd, exceeds 0xFFFF, the assert fires and the device
+    # panics. This is reachable e.g. on connection teardown when a small
+    # tcp_recved(1) is issued while the window is already fully open
+    # (rcv_ann_wnd == 0xFFFF). Clamp the call so we never overflow.
+    old_recved = (
+        "static err_t _tcp_recved_api(struct tcpip_api_call_data *api_call_msg){\n"
+        "    tcp_api_call_t * msg = (tcp_api_call_t *)api_call_msg;\n"
+        "    msg->err = ERR_CONN;\n"
+        "    if(msg->closed_slot == -1 || !_closed_slots[msg->closed_slot]) {\n"
+        "        msg->err = 0;\n"
+        "        tcp_recved(msg->pcb, msg->received);\n"
+        "    }\n"
+        "    return msg->err;\n"
+        "}\n"
+    )
+    new_recved = (
+        "static err_t _tcp_recved_api(struct tcpip_api_call_data *api_call_msg){\n"
+        "    tcp_api_call_t * msg = (tcp_api_call_t *)api_call_msg;\n"
+        "    msg->err = ERR_CONN;\n"
+        "    if(msg->closed_slot == -1 || !_closed_slots[msg->closed_slot]) {\n"
+        "        msg->err = 0;\n"
+        "        size_t _ho_recvd = msg->received;\n"
+        "        if (msg->pcb) {\n"
+        "            uint32_t _ho_wnd = (uint32_t)msg->pcb->rcv_ann_wnd;\n"
+        "            if (_ho_wnd >= 0xFFFFu) _ho_recvd = 0;\n"
+        "            else if (_ho_wnd + _ho_recvd > 0xFFFFu) _ho_recvd = 0xFFFFu - _ho_wnd;\n"
+        "        }\n"
+        "        if (_ho_recvd) tcp_recved(msg->pcb, _ho_recvd);\n"
+        "    }\n"
+        "    return msg->err;\n"
+        "}\n"
+    )
+    if old_recved in new_src:
+        new_src = new_src.replace(old_recved, new_recved, 1)
 
     if new_src == src:
         return False
