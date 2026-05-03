@@ -5,9 +5,11 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include <freertos/semphr.h>
 
 namespace honeyopus {
 
@@ -86,6 +88,90 @@ bool intel_report_abuseipdb(AttackEntry& e) {
     return false;
 }
 
+// ---- OTX pulse cache ----------------------------------------------------
+// We keep a single long-lived pulse and POST per-attack indicators to it,
+// instead of creating a new pulse for every attack (which spammed OTX). The
+// pulse id is cached in NVS alongside the name it was created for; if the
+// user changes otx_pulse_name in /config, we drop the cache and create a
+// fresh pulse on the next report.
+static SemaphoreHandle_t s_otx_mtx = nullptr;
+static String s_otx_pulse_id;
+static String s_otx_pulse_name_for_id;
+
+static void otx_load_cache_() {
+    if (!s_otx_mtx) s_otx_mtx = xSemaphoreCreateMutex();
+    if (s_otx_pulse_id.length()) return;
+    Preferences p;
+    if (p.begin("otx", true)) {
+        s_otx_pulse_id          = p.getString("pid", "");
+        s_otx_pulse_name_for_id = p.getString("pname", "");
+        p.end();
+    }
+}
+
+static void otx_save_cache_(const String& id, const String& name_used) {
+    Preferences p;
+    if (p.begin("otx", false)) {
+        p.putString("pid",   id);
+        p.putString("pname", name_used);
+        p.end();
+    }
+    s_otx_pulse_id = id;
+    s_otx_pulse_name_for_id = name_used;
+}
+
+// Create a new OTX pulse using cfg.otx_pulse_name; on success caches and
+// returns the new pulse id. Returns "" on failure.
+static String otx_create_pulse_(const Config& cfg) {
+    WiFiClientSecure cs; cs.setInsecure();
+    HTTPClient http;
+    if (!http.begin(cs, "https://otx.alienvault.com/api/v1/pulses/create")) return String();
+    http.addHeader("X-OTX-API-KEY", cfg.otx_key);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(10000);
+
+    JsonDocument d;
+    d["name"] = cfg.otx_pulse_name;
+    d["description"] = "Live capture of brute-force login attempts against an "
+                       "ESP32-C3 Telnet/SSH honeypot (HoneyOpus). Indicators "
+                       "are appended automatically as new attackers connect.";
+    d["public"] = false;
+    JsonArray tags = d["tags"].to<JsonArray>();
+    tags.add("honeypot"); tags.add("brute-force"); tags.add("ssh"); tags.add("telnet");
+    // Empty seed is fine — indicators are appended later via /indicators.
+    d["indicators"].to<JsonArray>();
+
+    String body; serializeJson(d, body);
+    int code = http.POST(body);
+    String resp = http.getString();
+    http.end();
+    if (code < 200 || code >= 300) {
+        Serial.printf("[otx] pulse-create failed http=%d resp=%s\n", code, resp.c_str());
+        return String();
+    }
+    JsonDocument r;
+    if (deserializeJson(r, resp) != DeserializationError::Ok) return String();
+    String id = (const char*)(r["id"] | "");
+    if (!id.length()) {
+        Serial.printf("[otx] pulse-create no id in resp=%s\n", resp.c_str());
+        return String();
+    }
+    Serial.printf("[otx] created pulse id=%s name=%s\n", id.c_str(), cfg.otx_pulse_name.c_str());
+    return id;
+}
+
+// Returns the pulse id to use, creating one if needed. Empty string on failure.
+static String otx_ensure_pulse_(const Config& cfg) {
+    otx_load_cache_();
+    if (s_otx_pulse_id.length() && s_otx_pulse_name_for_id == cfg.otx_pulse_name) {
+        return s_otx_pulse_id;
+    }
+    // Stale or missing — create a fresh pulse and persist.
+    String id = otx_create_pulse_(cfg);
+    if (id.length()) otx_save_cache_(id, cfg.otx_pulse_name);
+    return id;
+}
+
 bool intel_report_otx(AttackEntry& e) {
     auto& cfg = g_config.get();
     if (!cfg.otx_enabled || cfg.otx_key.length() == 0) return false;
@@ -95,38 +181,57 @@ bool intel_report_otx(AttackEntry& e) {
         return false;
     }
 
-    WiFiClientSecure cs;
-    cs.setInsecure();
+    if (!s_otx_mtx) s_otx_mtx = xSemaphoreCreateMutex();
+    xSemaphoreTake(s_otx_mtx, portMAX_DELAY);
+    String pulse_id = otx_ensure_pulse_(cfg);
+    if (!pulse_id.length()) {
+        xSemaphoreGive(s_otx_mtx);
+        return false;
+    }
+
+    WiFiClientSecure cs; cs.setInsecure();
     HTTPClient http;
-    if (!http.begin(cs, "https://otx.alienvault.com/api/v1/pulses/create")) return false;
+    String url = "https://otx.alienvault.com/api/v1/pulses/" + pulse_id + "/indicators/";
+    if (!http.begin(cs, url.c_str())) { xSemaphoreGive(s_otx_mtx); return false; }
     http.addHeader("X-OTX-API-KEY", cfg.otx_key);
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(10000);
 
     JsonDocument d;
-    d["name"] = cfg.otx_pulse_name + " — " + e.ip;
-    String desc = "ESP32-C3 honeypot capture. Protocol=";
-    desc += e.protocol; desc += " user="; desc += e.user;
-    if (e.country.length()) { desc += " country="; desc += e.country_code; }
-    d["description"] = desc;
-    d["public"] = false;
-    JsonArray tlp = d["tags"].to<JsonArray>();
-    tlp.add("honeypot"); tlp.add("brute-force"); tlp.add(e.protocol.c_str());
     JsonArray inds = d["indicators"].to<JsonArray>();
     JsonObject i = inds.add<JsonObject>();
+    i["type"]      = "IPv4";
     i["indicator"] = e.ip;
-    i["type"] = "IPv4";
-    i["description"] = "Brute-force source captured by HoneyOpus";
+    i["role"]      = "bruteforce";
+    String title;
+    if (e.protocol == "ssh")         title = "SSH login attempt";
+    else if (e.protocol == "telnet") title = "Telnet login attempt";
+    else                              title = e.protocol + " login attempt";
+    i["title"] = title;
 
-    String body;
-    serializeJson(d, body);
+    String desc = "Brute-force capture. user='";
+    desc += e.user; desc += "'";
+    if (e.country_code.length()) { desc += " geo="; desc += e.country_code; }
+    if (e.isp.length())          { desc += " isp="; desc += e.isp; }
+    i["description"] = desc;
+
+    String body; serializeJson(d, body);
     int code = http.POST(body);
     String resp = http.getString();
     http.end();
+    xSemaphoreGive(s_otx_mtx);
+
     if (code >= 200 && code < 300) {
         e.reported_otx = true;
-        Serial.printf("[otx] %s reported, http=%d\n", e.ip.c_str(), code);
+        Serial.printf("[otx] %s indicator added to pulse %s, http=%d\n",
+                      e.ip.c_str(), pulse_id.c_str(), code);
         return true;
+    }
+    // 404 means our cached pulse was deleted upstream — drop the cache so a
+    // fresh pulse is created on the next attack.
+    if (code == 404) {
+        Serial.printf("[otx] cached pulse %s gone (404), clearing cache\n", pulse_id.c_str());
+        otx_save_cache_(String(), String());
     }
     Serial.printf("[otx] failed http=%d resp=%s\n", code, resp.c_str());
     return false;
