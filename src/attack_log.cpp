@@ -11,6 +11,16 @@ AttackLog g_attack_log;
 
 static const char* LOG_PATH = "/attacks/log.jsonl";
 
+namespace {
+struct LogLock {
+    SemaphoreHandle_t m;
+    explicit LogLock(SemaphoreHandle_t s) : m(s) { if (m) xSemaphoreTakeRecursive(m, portMAX_DELAY); }
+    ~LogLock() { if (m) xSemaphoreGiveRecursive(m); }
+    LogLock(const LogLock&) = delete;
+    LogLock& operator=(const LogLock&) = delete;
+};
+}
+
 void AttackEntry::toJson(JsonObject o) const {
     o["id"]            = id;
     o["ts"]            = (uint32_t)ts;
@@ -70,6 +80,8 @@ AttackEntry AttackEntry::fromJson(JsonObjectConst o) {
 }
 
 bool AttackLog::begin() {
+    if (!mtx_) mtx_ = xSemaphoreCreateRecursiveMutex();
+    LogLock lk(mtx_);
     // Discover next id and line count by scanning the log. Silent probe first
     // so first boot doesn't spam vfs_api ERROR logs.
     next_id_ = 1;
@@ -92,9 +104,10 @@ bool AttackLog::begin() {
     return true;
 }
 
-uint32_t AttackLog::nextId() { return next_id_++; }
+uint32_t AttackLog::nextId() { LogLock lk(mtx_); return next_id_++; }
 
 void AttackLog::append(const AttackEntry& e) {
+    LogLock lk(mtx_);
     File f = LittleFS.open(LOG_PATH, "a");
     if (!f) {
         Serial.printf("[log] append open failed for %s\n", LOG_PATH);
@@ -125,6 +138,7 @@ void AttackLog::append(const AttackEntry& e) {
 }
 
 void AttackLog::update(const AttackEntry& e) {
+    LogLock lk(mtx_);
     auto all = recent(0);
     bool found = false;
     for (auto& it : all) {
@@ -135,6 +149,7 @@ void AttackLog::update(const AttackEntry& e) {
 }
 
 std::vector<AttackEntry> AttackLog::recent(size_t limit) {
+    LogLock lk(mtx_);
     std::vector<AttackEntry> out;
     File f = LittleFS.open(LOG_PATH, "r");
     if (!f) return out;
@@ -155,12 +170,14 @@ std::vector<AttackEntry> AttackLog::recent(size_t limit) {
 }
 
 bool AttackLog::getById(uint32_t id, AttackEntry& out) {
+    LogLock lk(mtx_);
     auto all = recent(0);
     for (auto& e : all) if (e.id == id) { out = e; return true; }
     return false;
 }
 
 size_t AttackLog::count() {
+    LogLock lk(mtx_);
     size_t n = 0;
     File f = LittleFS.open(LOG_PATH, "r");
     if (!f) return 0;
@@ -170,6 +187,7 @@ size_t AttackLog::count() {
 }
 
 void AttackLog::clearAll() {
+    LogLock lk(mtx_);
     // Truncate by reopening for write.
     File f = LittleFS.open(LOG_PATH, "w");
     if (f) f.close();
@@ -178,6 +196,7 @@ void AttackLog::clearAll() {
 }
 
 void AttackLog::rewriteAll_(const std::vector<AttackEntry>& v) {
+    LogLock lk(mtx_);
     // recent() returns newest-first; persist oldest-first to keep the file
     // chronologically ordered.
     File f = LittleFS.open(LOG_PATH, "w");

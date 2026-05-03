@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 namespace honeyopus {
 
@@ -59,6 +61,7 @@ private:
     void rewriteAll_(const std::vector<AttackEntry>& v);
     uint32_t next_id_ = 1;
     size_t   line_count_ = 0;       // tracked locally to avoid scanning the file on every append
+    SemaphoreHandle_t mtx_ = nullptr;  // recursive: serialises all public ops + file IO
 };
 
 extern AttackLog g_attack_log;
