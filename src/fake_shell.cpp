@@ -614,11 +614,30 @@ String FakeShell::runOne_(Cmd& c) {
     last_status_ok_ = true;
     const String& e = c.exe;
 
-    // BusyBox aliasing: "busybox <cmd> ..." -> shift
-    if (e == "busybox" && c.argv.size() >= 2) {
+    // BusyBox aliasing: "busybox <cmd> ..." -> shift. If <cmd> isn't a real
+    // applet we *must* mimic BusyBox's "<applet>: applet not found" output —
+    // Mirai/Gafgyt droppers probe exactly with `/bin/busybox <RANDOMSTRING>`
+    // and treat the bash-style "command not found" as a honeypot tell.
+    if (e == "busybox") {
+        if (c.argv.size() < 2) {
+            // Bare `busybox` — print a stub banner like real busybox does.
+            return F("BusyBox v1.30.1 (2020-12-23 15:49:40 UTC) multi-call binary.\n"
+                     "BusyBox is copyrighted by many authors between 1998-2015.\n"
+                     "Licensed under GPLv2. See source distribution for detailed\n"
+                     "copyright notices.\n\n"
+                     "Usage: busybox [function [arguments]...]\n");
+        }
+        String applet = c.argv[1];
         c.argv.erase(c.argv.begin());
         c.exe = normalizeExe_(c.argv[0]);
-        return runOne_(c);
+        String r = runOne_(c);
+        // If the inner dispatch fell through to the bash not-found message,
+        // rewrite it as the BusyBox applet-not-found line. last_status_ok_
+        // remains false either way.
+        if (!last_status_ok_ && r.startsWith("-bash:")) {
+            return applet + ": applet not found\n";
+        }
+        return r;
     }
 
     // path execution: ./x, /tmp/x, etc.
