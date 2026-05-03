@@ -15,6 +15,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <time.h>
+#include <esp_task_wdt.h>
 
 #include "config.h"
 #include "display.h"
@@ -37,6 +38,12 @@ void setup() {
     Serial.printf("chip: %s rev=%u  cpu=%uMHz  free_heap=%u\n",
                   ESP.getChipModel(), ESP.getChipRevision(),
                   ESP.getCpuFreqMHz(), ESP.getFreeHeap());
+
+    // Bump the task watchdog from the 5 s default to 30 s. LittleFS rewrites
+    // and TLS handshakes (AbuseIPDB / OTX / GeoIP) can occasionally hold a
+    // task for several seconds on this single-core chip; 5 s is too tight
+    // and was tripping async_tcp under attack flood.
+    esp_task_wdt_init(30, true);
 
     g_display.begin();
     g_display.showBootLogo(2000);

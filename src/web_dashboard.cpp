@@ -280,21 +280,23 @@ static void send_dashboard(AsyncWebServerRequest* req) {
                 row += F("<span class='flag' title='LAN / private network' aria-label='LAN'>&#x1F3E0;</span>");
             } else if (e.country_code.length()) {
                 String cc = e.country_code; cc.toUpperCase();
-                String alt = e.country.length() ? e.country : cc;
+                // Build a rich tooltip that combines country, city and ISP so
+                // the column itself stays compact: just the flag glyph.
+                String tip = e.country.length() ? e.country : cc;
+                if (e.city.length())   { tip += " · "; tip += e.city; }
+                if (e.region.length()) { tip += " · "; tip += e.region; }
+                if (e.isp.length())    { tip += " · "; tip += e.isp; }
                 row += "<span class='flag' title='";
-                row += html_escape(alt);
+                row += html_escape(tip);
                 row += "' aria-label='";
                 row += html_escape(cc);
                 row += "'>";
                 row += flag_emoji(e.country_code);
                 row += "</span>";
+            } else if (e.country.length()) {
+                row += "<span class='flag' title='";
                 row += html_escape(e.country);
-            } else {
-                row += html_escape(e.country);
-            }
-            if (!intel_ip_is_private(e.ip)) {
-                if (e.city.length()) { row += " · "; row += html_escape(e.city); }
-                if (e.isp.length())  { row += "<div class='meta'>"; row += html_escape(e.isp); row += "</div>"; }
+                row += "'>?</span>";
             }
             row += "</td>";
             auto pv = profile_visual(e.profile);
