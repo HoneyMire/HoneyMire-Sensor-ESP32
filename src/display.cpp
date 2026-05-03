@@ -165,9 +165,14 @@ void Display::loop() {
 }
 
 // ============================================================================
-//  LovyanGFX color backend (driver 2): LilyGO T-QT Pro 128×128 GC9107.
-//  Pin mapping comes from the LilyGO-T-QT-Pro reference repo. We keep the
-//  panel config self-contained here so platformio.ini stays clean.
+//  LovyanGFX color backend (driver 2): LilyGO T-QT Pro 128×128 IPS.
+//
+//  IMPORTANT: despite many vendor pages calling it "GC9107", the panel that
+//  actually ships on current T-QT Pro units is an ST7735-class controller
+//  with custom power/gamma tuning. LovyanGFX's stock Panel_GC9107 produces
+//  a garbled image. We instead supply the exact init sequence taken from a
+//  known-good native ESP-IDF reference for this board (see
+//  /Users/ka/code/mimiclaw board_support.c, "lcd_init_panel_new").
 // ============================================================================
 #elif HONEYOPUS_DISPLAY_DRIVER == 2
 
@@ -177,7 +182,7 @@ void Display::loop() {
 namespace honeyopus {
 
 // LilyGO T-QT Pro pin map (verified against the LilyGO repo):
-//   SCK=3, MOSI=2, CS=5, DC=6, RST=1, BL=10, panel=GC9107, 128×128.
+//   SCK=3, MOSI=2, CS=5, DC=6, RST=1, BL=10 (active-low), 128×128.
 static constexpr int8_t TQT_PIN_SCK = 3;
 static constexpr int8_t TQT_PIN_MOSI = 2;
 static constexpr int8_t TQT_PIN_CS  = 5;
@@ -185,17 +190,73 @@ static constexpr int8_t TQT_PIN_DC  = 6;
 static constexpr int8_t TQT_PIN_RST = 1;
 static constexpr int8_t TQT_PIN_BL  = 10;
 
+// Custom panel: ST7735-family with the T-QT Pro init list and a single fixed
+// rotation that yields MADCTL = 0xA8 (MV|MY + BGR), matching the reference.
+class Panel_TQTPro : public lgfx::Panel_LCD {
+public:
+    Panel_TQTPro(void) {
+        _cfg.panel_width  = _cfg.memory_width  = 128;
+        _cfg.panel_height = _cfg.memory_height = 128;
+        _cfg.dummy_read_pixel = 9;
+    }
+protected:
+    // Rotation 0 → MAD_MY|MAD_MV = 0xA0; lgfx OR's MAD_BGR (0x08) when
+    // cfg.rgb_order=false, giving the desired 0xA8.
+    uint8_t getMadCtl(uint8_t r) const override {
+        static constexpr uint8_t t[] = {
+            MAD_MY | MAD_MV,            // r=0  → 0xA0 (lgfx ORs MAD_BGR → 0xA8)
+            MAD_MX | MAD_MV,            // r=1
+            MAD_MX | MAD_MY,            // r=2
+            0,                           // r=3
+            MAD_MV,                      // r=4 mirrors
+            MAD_MX,
+            MAD_MX | MAD_MY | MAD_MV,
+            MAD_MY,
+        };
+        return t[r & 7];
+    }
+
+    const uint8_t* getInitCommands(uint8_t listno) const override {
+        // Init sequence ported from mimiclaw lcd_init_panel_new.
+        // Format: cmd, num_args (| 0x80 for trailing-delay), args..., [delay_ms],
+        // terminated by 0xFF, 0xFF.
+        static constexpr uint8_t init0[] = {
+            CMD_SLPOUT,    CMD_INIT_DELAY, 120,
+            0xB1, 3, 0x05, 0x3C, 0x3C,
+            0xB2, 3, 0x05, 0x3C, 0x3C,
+            0xB3, 6, 0x05, 0x3C, 0x3C, 0x05, 0x3C, 0x3C,
+            0xB4, 1, 0x03,
+            0xC0, 3, 0xAB, 0x0B, 0x04,
+            0xC1, 1, 0xC5,
+            0xC2, 2, 0x0D, 0x00,
+            0xC3, 2, 0x8D, 0x6A,
+            0xC4, 2, 0x8D, 0xEE,
+            0xC5, 1, 0x0F,
+            0xE0, 16, 0x07, 0x0E, 0x08, 0x07, 0x10, 0x07, 0x02, 0x07,
+                      0x09, 0x0F, 0x25, 0x36, 0x00, 0x08, 0x04, 0x10,
+            0xE1, 16, 0x0A, 0x0D, 0x08, 0x07, 0x0F, 0x07, 0x02, 0x07,
+                      0x09, 0x0F, 0x25, 0x35, 0x00, 0x09, 0x04, 0x10,
+            0xFC, 1, 0x80,
+            CMD_DISPON, CMD_INIT_DELAY, 20,
+            0xFF, 0xFF
+        };
+        return (listno == 0) ? init0 : nullptr;
+    }
+};
+
 class LGFX_TQTPro : public lgfx::LGFX_Device {
-    lgfx::Panel_GC9107  _panel_instance;
-    lgfx::Bus_SPI       _bus_instance;
-    lgfx::Light_PWM     _light_instance;
+    Panel_TQTPro       _panel_instance;
+    lgfx::Bus_SPI      _bus_instance;
+    lgfx::Light_PWM    _light_instance;
 public:
     LGFX_TQTPro() {
         {
             auto cfg = _bus_instance.config();
             cfg.spi_host    = SPI2_HOST;
             cfg.spi_mode    = 0;
-            cfg.freq_write  = 27000000;
+            // 26 MHz matches the reference; conservative enough for the
+            // T-QT Pro flying-lead PCB layout.
+            cfg.freq_write  = 26000000;
             cfg.freq_read   = 16000000;
             cfg.spi_3wire   = true;
             cfg.use_lock    = true;
@@ -216,14 +277,16 @@ public:
             cfg.memory_height    = 128;
             cfg.panel_width      = 128;
             cfg.panel_height     = 128;
-            cfg.offset_x         = 2;   // GC9107 typical offsets
-            cfg.offset_y         = 1;
+            // Visible-area offsets inside the controller's 132-wide RAM,
+            // applied AFTER the rotation transform — values per mimiclaw.
+            cfg.offset_x         = 1;
+            cfg.offset_y         = 2;
             cfg.offset_rotation  = 0;
             cfg.dummy_read_pixel = 8;
             cfg.dummy_read_bits  = 1;
             cfg.readable         = false;
-            cfg.invert           = true;
-            cfg.rgb_order        = false;
+            cfg.invert           = true;   // 0x21 INVON
+            cfg.rgb_order        = false;  // false → BGR bit set in MADCTL
             cfg.dlen_16bit       = false;
             cfg.bus_shared       = false;
             _panel_instance.config(cfg);
@@ -231,7 +294,7 @@ public:
         {
             auto cfg = _light_instance.config();
             cfg.pin_bl      = TQT_PIN_BL;
-            cfg.invert      = false;
+            cfg.invert      = true;        // BL is active-low on T-QT Pro
             cfg.freq        = 12000;
             cfg.pwm_channel = 7;
             _light_instance.config(cfg);

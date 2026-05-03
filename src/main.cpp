@@ -57,7 +57,21 @@ static void honeyopus_new_handler() {
 }
 
 void setup() {
+    // On the ESP32-S3 with native USB-CDC (`ARDUINO_USB_MODE=1` +
+    // `ARDUINO_USB_CDC_ON_BOOT=1`), the CDC port enumerates a few hundred
+    // ms after reset. Bumping the RX buffer and giving the host a moment
+    // to (re)open the port makes the serial menu reliably catch keystrokes
+    // typed right after a reboot — without affecting boards that already
+    // had a stable serial path.
+    Serial.setRxBufferSize(512);
     Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT
+    // Wait briefly for the host to open the CDC port; bail after 800 ms so
+    // headless / power-only deployments still boot promptly.
+    for (uint32_t t0 = millis(); !Serial && (millis() - t0) < 800; ) {
+        delay(20);
+    }
+#endif
     delay(150);
     std::set_new_handler(honeyopus_new_handler);
     Serial.println();
