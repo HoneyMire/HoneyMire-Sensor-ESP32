@@ -273,6 +273,25 @@ bool intel_report_otx(AttackEntry& e) {
     desc += e.user; desc += "'";
     if (e.country_code.length()) { desc += " geo="; desc += e.country_code; }
     if (e.isp.length())          { desc += " isp="; desc += e.isp; }
+    // Attacker profile, in cautious wording. The classifier is heuristic and
+    // can mis-label, so we hedge ("likely", "possibly") and never assert
+    // attribution. Also include the raw label + confidence for analysts who
+    // want to filter on it.
+    if (e.profile.length() && e.profile != "unknown" && e.profile != "lan") {
+        String hint;
+        if      (e.profile == "mirai")       hint = "likely automated bot (Mirai-family)";
+        else if (e.profile == "iot-loader")  hint = "likely automated IoT loader";
+        else if (e.profile == "scanner")     hint = "likely automated scanner";
+        else if (e.profile == "scripted")    hint = "likely scripted client";
+        else if (e.profile == "creds-only" ||
+                 e.profile == "creds-probe") hint = "credential probe, likely automated";
+        else if (e.profile == "manual")      hint = "interactive session, possibly human-operated";
+        if (hint.length()) {
+            desc += " behavior='"; desc += hint; desc += "'";
+            desc += " (heuristic label="; desc += e.profile;
+            desc += " confidence="; desc += String(e.profile_confidence); desc += "%)";
+        }
+    }
     i["description"] = desc;
 
     String body; serializeJson(d, body);
