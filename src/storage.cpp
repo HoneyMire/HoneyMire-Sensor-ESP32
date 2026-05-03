@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <sys/stat.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 namespace honeyopus {
 
@@ -61,14 +63,22 @@ void storage_trim_sessions(uint16_t max_keep) {
 }
 
 size_t storage_enforce_session_quota(uint16_t max_keep, size_t max_total_bytes) {
+    // Two telnet/SSH sessions can finalize at the same time; without a mutex
+    // they race on /sessions enumeration and one task tries to stat or remove
+    // files the other has already deleted. ESP-IDF then logs noisy
+    // 'vfs_api.cpp:105 open(): ... does not exist' errors for every miss.
+    static SemaphoreHandle_t mtx = xSemaphoreCreateMutex();
+    if (mtx) xSemaphoreTake(mtx, portMAX_DELAY);
     auto names = storage_list_dir("/sessions");
-    // Compute total bytes of every entry.
+    // Compute total bytes of every entry. Skip files that disappeared between
+    // listing and stat — fs_exists_silent uses stat() and produces no log.
     struct Entry { String name; size_t sz; };
     std::vector<Entry> all;
     all.reserve(names.size());
     size_t total = 0;
     for (auto& n : names) {
         String full = String("/sessions/") + n;
+        if (!fs_exists_silent(full.c_str())) continue;
         File f = LittleFS.open(full, "r");
         size_t sz = f ? f.size() : 0;
         if (f) f.close();
@@ -92,6 +102,7 @@ size_t storage_enforce_session_quota(uint16_t max_keep, size_t max_total_bytes) 
         total = (total > victim.sz) ? (total - victim.sz) : 0;
         all.pop_back();
     }
+    if (mtx) xSemaphoreGive(mtx);
     return deleted;
 }
 

@@ -20,8 +20,8 @@ namespace honeyopus {
 // 80 KB free with a largest block under 50 KB and operator new still throws.
 // Skip the request when either watermark fails to avoid the cascade
 // (handshake -32512 -> LittleFS.open partial failure -> lfs assert).
-static const size_t kTlsMinHeap        = 40 * 1024;
-static const size_t kTlsMinLargestBlk  = 38 * 1024;
+static const size_t kTlsMinHeap        = 32 * 1024;
+static const size_t kTlsMinLargestBlk  = 24 * 1024;
 static const size_t kFlashMinHeap      = 12 * 1024;
 
 static bool heap_ok_for_tls_(const char* tag) {
