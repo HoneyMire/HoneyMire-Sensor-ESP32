@@ -20,7 +20,10 @@ namespace honeyopus {
 
 static const uint16_t TN_COLS = 80;
 static const uint16_t TN_ROWS = 24;
-static const uint8_t  TN_MAX_CONCURRENT = 3;        // hard cap to keep RAM safe on C3
+#ifndef HONEYOPUS_TN_MAX
+#define HONEYOPUS_TN_MAX 3
+#endif
+static const uint8_t  TN_MAX_CONCURRENT = HONEYOPUS_TN_MAX; // per-board cap (see platformio.ini)
 
 static AsyncServer*  s_server = nullptr;
 static volatile uint8_t s_active = 0;               // updated on connect/disconnect

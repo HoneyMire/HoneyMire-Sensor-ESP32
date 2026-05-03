@@ -1,4 +1,5 @@
-// HoneyOpus — ESP32-C3 Telnet/SSH honeypot with OLED feedback, captive portal,
+// HoneyOpus — multi-board ESP32 Telnet/SSH honeypot with optional OLED/TFT
+// feedback, captive portal,
 // asciinema recording, and threat-intelligence reporting.
 //
 // Boot sequence:
@@ -60,7 +61,7 @@ void setup() {
     delay(150);
     std::set_new_handler(honeyopus_new_handler);
     Serial.println();
-    Serial.println("==== HoneyOpus booting ====");
+    Serial.println("==== HoneyOpus booting (" HONEYOPUS_BOARD_NAME ") ====");
     Serial.printf("chip: %s rev=%u  cpu=%uMHz  free_heap=%u\n",
                   ESP.getChipModel(), ESP.getChipRevision(),
                   ESP.getCpuFreqMHz(), ESP.getFreeHeap());

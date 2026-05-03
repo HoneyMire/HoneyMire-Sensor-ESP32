@@ -38,8 +38,8 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio esptool
 
-      - name: Build firmware
-        run: pio run -e esp32-c3-oled
+      - name: Build firmware (all boards)
+        run: pio run -e esp32-c3-oled -e lilygo-t-qt-pro -e esp32-s3-n16r8
 
       - name: Compose web-flasher site
         env:
@@ -48,7 +48,6 @@ jobs:
           REPO:    ${{ github.repository }}
         run: |
           set -euo pipefail
-          BUILD=.pio/build/esp32-c3-oled
           BOOT_APP0=$(find "$HOME/.platformio/packages" -name boot_app0.bin -path '*/partitions/*' | head -n1)
           if [ -z "$BOOT_APP0" ]; then
             echo "::error::boot_app0.bin not found"
@@ -58,19 +57,31 @@ jobs:
           mkdir -p site
           cp -r web/. site/
 
-          # Merge bootloader + partitions + boot_app0 + app into a single image
-          # so ESP Web Tools only needs one part at offset 0.
-          esptool.py --chip esp32c3 merge_bin \
-            -o site/firmware.bin \
-            --flash_mode dio --flash_freq 80m --flash_size 4MB \
-            0x0000   "$BUILD/bootloader.bin" \
-            0x8000   "$BUILD/partitions.bin" \
-            0xe000   "$BOOT_APP0" \
-            0x10000  "$BUILD/firmware.bin"
+          # Per-board merged images. ESP Web Tools picks the right one from
+          # the chipFamily field in manifest.json once the user clicks Connect.
+          merge() {
+            local env="$1" chip="$2" out="$3" size="$4"
+            local build=".pio/build/${env}"
+            esptool.py --chip "$chip" merge_bin \
+              -o "site/${out}" \
+              --flash_mode dio --flash_freq 80m --flash_size "${size}" \
+              0x0000   "$build/bootloader.bin" \
+              0x8000   "$build/partitions.bin" \
+              0xe000   "$BOOT_APP0" \
+              0x10000  "$build/firmware.bin"
+          }
+          merge esp32-c3-oled    esp32c3 firmware-esp32c3.bin       4MB
+          merge lilygo-t-qt-pro  esp32s3 firmware-esp32s3-tqtpro.bin 4MB
+          merge esp32-s3-n16r8   esp32s3 firmware-esp32s3-n16r8.bin 16MB
 
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SHORT_SHA=${GIT_SHA::7}
 
+          # ESP Web Tools manifest with one build entry per chipFamily.
+          # The S3 entry covers both T-QT Pro and N16R8 — we default to the
+          # T-QT Pro image (4 MB, runs on either as long as flash >= 4 MB).
+          # Users who want the full 16 MB N16R8 layout grab firmware-esp32s3-n16r8.bin
+          # from the Releases / Pages site directly.
           cat > site/manifest.json <<JSON
           {
             "name": "HoneyOpus",
@@ -82,7 +93,13 @@ jobs:
               {
                 "chipFamily": "ESP32-C3",
                 "parts": [
-                  { "path": "firmware.bin", "offset": 0 }
+                  { "path": "firmware-esp32c3.bin", "offset": 0 }
+                ]
+              },
+              {
+                "chipFamily": "ESP32-S3",
+                "parts": [
+                  { "path": "firmware-esp32s3-tqtpro.bin", "offset": 0 }
                 ]
               }
             ]
@@ -93,7 +110,9 @@ jobs:
           sed -i "s#REPO_PLACEHOLDER#${REPO}#g" site/index.html
 
           ls -la site
-          echo "Merged firmware size: $(stat -c%s site/firmware.bin) bytes"
+          for f in site/firmware-*.bin; do
+            echo "$(basename "$f"): $(stat -c%s "$f") bytes"
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -105,7 +124,7 @@ jobs:
         with:
           name: honeyopus-firmware-${{ github.sha }}
           path: |
-            site/firmware.bin
+            site/firmware-*.bin
             site/manifest.json
           if-no-files-found: error
           retention-days: 30

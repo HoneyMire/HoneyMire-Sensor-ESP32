@@ -458,6 +458,11 @@ static void ssh_listener_task(void*) {
         // below ~55 KB, the KEX will malloc-fail mid-handshake and leave
         // the heap fragmented further. Reject early instead — the peer
         // sees a TCP RST rather than a half-broken SSH banner.
+        //
+        // On boards with PSRAM (S3 N16R8 / T-QT Pro) the gate is unnecessary:
+        // libssh+mbedtls allocate from the unified heap which is plenty
+        // large. We skip the check entirely there.
+#if !HONEYOPUS_HAS_PSRAM
         {
             size_t largest = ESP.getMaxAllocHeap();
             if (largest < 55 * 1024) {
@@ -468,6 +473,7 @@ static void ssh_listener_task(void*) {
                 continue;
             }
         }
+#endif
         // Cap blocking time inside libssh. Without these, a peer that
         // completes the TCP handshake and then never sends another byte
         // wedges the listener forever (and pins ~100 KB of libssh heap).

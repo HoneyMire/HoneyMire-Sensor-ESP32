@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>HoneyOpus · Web Installer</title>
-<meta name="description" content="Flash the HoneyOpus ESP32-C3 honeypot firmware right from your browser."/>
+<meta name="description" content="Flash the HoneyOpus ESP32 honeypot firmware right from your browser. Supports ESP32-C3, LilyGO T-QT Pro and ESP32-S3 N16R8."/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%8D%AF%3C/text%3E%3C/svg%3E"/>
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 <style>
@@ -38,9 +38,9 @@ footer a{color:#7ad9ff}
 <body>
 <header>
   <h1><span class="em">🍯</span>HoneyOpus</h1>
-  <p class="tag">An ESP32-C3 SSH/Telnet honeypot — installable from your browser.</p>
+  <p class="tag">An ESP32 SSH/Telnet honeypot — installable from your browser.</p>
   <div class="badges">
-    <span class="badge">Target: <b>ESP32-C3</b></span>
+    <span class="badge">Targets: <b>ESP32-C3 · ESP32-S3</b></span>
     <span class="badge">Build: <b id="b-ver">latest</b></span>
     <span class="badge">Built: <b id="b-date">—</b></span>
   </div>
@@ -51,7 +51,9 @@ footer a{color:#7ad9ff}
 <section class="card flash">
   <h2 style="align-self:flex-start">Install the latest firmware</h2>
   <p class="meta" style="align-self:flex-start;margin-top:-8px">
-    Plug your ESP32-C3 board in via USB, then click <b>Connect</b> and pick the serial port.
+    Plug your board in via USB (ESP32-C3 SuperMini, LilyGO T-QT Pro or
+    ESP32-S3 N16R8), then click <b>Connect</b> and pick the serial port.
+    The flasher auto-detects the chip family and picks the matching image.
   </p>
   <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
   <div class="fallback" id="fallback">
@@ -71,13 +73,14 @@ footer a{color:#7ad9ff}
 <section class="card">
   <h2>After flashing</h2>
   <ol>
-    <li>The OLED briefly shows the boot logo, then turns off.</li>
+    <li>The display (if your board has one) briefly shows the boot logo, then turns off.</li>
     <li>The board comes up as a SoftAP <code>HoneyOpus-XXXXXX</code> (password
         <code>honeyopus</code>). Connect with your phone — the captive portal
         opens automatically.</li>
     <li>Pick your Wi-Fi network, enter the password, hit <b>Connect</b>. The
         device reboots and joins your LAN.</li>
-    <li>Browse to the IP shown on the OLED. Default dashboard login is
+    <li>Browse to the IP shown on the display (or in the serial console for
+        headless boards). Default dashboard login is
         <code>admin</code> / <code>honeyopus</code> (LAN clients are auto-allowed
         without auth — change the password before exposing the device).</li>
   </ol>

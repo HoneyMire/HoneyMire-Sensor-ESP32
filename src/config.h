@@ -5,6 +5,13 @@
 
 namespace honeyopus {
 
+#ifndef HONEYOPUS_BOARD_NAME
+#define HONEYOPUS_BOARD_NAME "ESP32"
+#endif
+#ifndef HONEYOPUS_HAS_PSRAM
+#define HONEYOPUS_HAS_PSRAM 0
+#endif
+
 struct Config {
     // WiFi
     String wifi_ssid;
@@ -33,10 +40,10 @@ struct Config {
     // Intel reporting
     bool   abuseipdb_enabled = false;
     String abuseipdb_key     = "";
-    String abuseipdb_comment = "Brute-force login attempt captured by HoneyOpus on ESP32-C3.";
+    String abuseipdb_comment = "Brute-force login attempt captured by HoneyOpus on " HONEYOPUS_BOARD_NAME ".";
     bool   otx_enabled       = false;
     String otx_key           = "";
-    String otx_pulse_name    = "HoneyOpus ESP32-C3 SSH/Telnet Brute-force";
+    String otx_pulse_name    = "HoneyOpus " HONEYOPUS_BOARD_NAME " SSH/Telnet Brute-force";
     // If set, every reboot reuses this exact pulse id instead of creating
     // a new one (the previous behavior fragmented data across many pulses
     // — one per reboot). Leave empty to fall back to the cached/created

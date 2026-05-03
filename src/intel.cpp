@@ -228,8 +228,8 @@ static String otx_create_pulse_(const Config& cfg, const AttackEntry& seed) {
     JsonDocument d;
     d["name"] = cfg.otx_pulse_name;
     d["description"] = "Live capture of brute-force login attempts against an "
-                       "ESP32-C3 Telnet/SSH honeypot (HoneyOpus). Indicators "
-                       "are appended automatically as new attackers connect.";
+                       HONEYOPUS_BOARD_NAME " Telnet/SSH honeypot (HoneyOpus). "
+                       "Indicators are appended automatically as new attackers connect.";
     d["public"] = false;
     JsonArray tags = d["tags"].to<JsonArray>();
     tags.add("honeypot"); tags.add("brute-force"); tags.add("ssh"); tags.add("telnet");

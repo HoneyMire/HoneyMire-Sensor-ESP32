@@ -24,17 +24,27 @@ works in Chrome, Edge and Opera on a desktop computer.
 
 ## Hardware
 
-* Any ESP32-C3 SuperMini-class board with a built-in **SSD1306 72×40** OLED
-  (I²C on **GPIO 5/6**) — e.g. the popular *01Space ESP32-C3 0.42" OLED*.
-* Boot button on **GPIO 9** acts as the *function button*.
-* The build also supports a **128×64** or **128×32** OLED — change
-  `HONEYOPUS_DISPLAY_W/H` in `platformio.ini`.
+HoneyOpus targets three boards out of the box. Pick one and PlatformIO will
+wire up the right display driver, partition table and concurrency caps.
+
+| Build env (`-e`) | Chip | Flash / RAM / PSRAM | Display | Telnet cap | Notes |
+|---|---|---|---|---|---|
+| `esp32-c3-oled` *(default)* | ESP32-C3 | 4 MB / 400 KB / — | SSD1306 72×40 mono OLED (I²C GPIO 5/6) | 3 | 01Space SuperMini-class. Heap-tight; SSH gated by free-largest. |
+| `lilygo-t-qt-pro` | ESP32-S3 | 4 MB / 512 KB / 2 MB QSPI | GC9107 128×128 colour IPS (LovyanGFX) | 6 | LilyGO T-QT Pro. Buttons on GPIO 0/47. Display offsets/invert untested on a real device — adjust in `src/display.cpp` if needed. |
+| `esp32-s3-n16r8` | ESP32-S3 | 16 MB / 512 KB / 8 MB OPI | headless | 8 | Generic N16R8 module. Best honeypot capacity, no UI. Uses `partitions_16mb.csv`. |
+
+Common to all: boot button (`GPIO 9` on C3, `GPIO 0` on S3) acts as the
+function button when the board has one.
 
 ## Building from source
 
 ```sh
-pio run -t upload     # build + flash
-pio device monitor    # serial console (115200 baud)
+pio run                          # default env (esp32-c3-oled)
+pio run -e lilygo-t-qt-pro       # LilyGO T-QT Pro
+pio run -e esp32-s3-n16r8        # generic ESP32-S3 N16R8
+
+pio run -e <env> -t upload       # build + flash
+pio device monitor               # serial console (115200 baud)
 ```
 
 The first SSH connection after a fresh flash takes ~30 seconds while the

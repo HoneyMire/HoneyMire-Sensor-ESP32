@@ -264,7 +264,7 @@ static void send_dashboard(AsyncWebServerRequest* req) {
         s += F("<div class='card' style='border-left:4px solid #f0b429'><b>HoneyOpus is still initializing.</b> ");
         s += ssh_hostkey_ready()
             ? F("SSH host key ready, the listener is binding. ")
-            : F("Generating the SSH host key on first boot &mdash; this normally takes ~30 s on ESP32-C3. ");
+            : F("Generating the SSH host key on first boot &mdash; this can take up to ~30 s. ");
         s += F("Telnet captures and the dashboard work right now; SSH will accept connections in a few seconds. "
                "<span class='meta'>(this page auto-refreshes)</span></div>");
         pg->segs.push_back(std::move(s));
@@ -381,7 +381,7 @@ static void send_dashboard(AsyncWebServerRequest* req) {
     {
         char foot[256];
         snprintf(foot, sizeof(foot),
-            "<p class='meta'>HoneyOpus on ESP32-C3 · IP %s · uptime %us · Telnet %s · SSH %s</p>",
+            "<p class='meta'>HoneyOpus on " HONEYOPUS_BOARD_NAME " · IP %s · uptime %us · Telnet %s · SSH %s</p>",
             wifi_ip_string().c_str(),
             (unsigned)(millis() / 1000),
             g_config.get().telnet_enabled ? "on" : "off",
