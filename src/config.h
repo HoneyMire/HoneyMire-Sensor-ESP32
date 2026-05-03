@@ -37,6 +37,11 @@ struct Config {
     bool   otx_enabled       = false;
     String otx_key           = "";
     String otx_pulse_name    = "HoneyOpus ESP32-C3 SSH/Telnet Brute-force";
+    // If set, every reboot reuses this exact pulse id instead of creating
+    // a new one (the previous behavior fragmented data across many pulses
+    // — one per reboot). Leave empty to fall back to the cached/created
+    // pulse-by-name behavior.
+    String otx_pulse_id      = "69f726101fd2d1e4eba3a886";
 
     // Time / timezone — POSIX TZ string. Default is Central European Time with
     // EU DST rules (last Sunday of March → last Sunday of October at 03:00).

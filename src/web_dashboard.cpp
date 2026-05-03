@@ -473,6 +473,7 @@ static void send_config_page(AsyncWebServerRequest* req) {
     checkbox("AlienVault OTX", "otx_enabled", c.otx_enabled);
     field("OTX API key", "otx_key", c.otx_key, "password");
     field("OTX pulse name", "otx_pulse_name", c.otx_pulse_name);
+    field("OTX pulse id (fixed; empty = create-by-name)", "otx_pulse_id", c.otx_pulse_id);
     addF(F("<p class='meta' style='grid-column:1/3;margin:-4px 0 0'>"
            "Attacks coming from LAN/private IPs are never reported.</p>"));
     sec_close();
@@ -607,6 +608,7 @@ static void handle_config_post(AsyncWebServerRequest* req) {
     c.otx_enabled    = getBool("otx_enabled", c.otx_enabled);
     c.otx_key        = get("otx_key", c.otx_key);
     c.otx_pulse_name = get("otx_pulse_name", c.otx_pulse_name);
+    c.otx_pulse_id   = get("otx_pulse_id", c.otx_pulse_id);
     String old_tz   = c.tz;
     String old_ntp1 = c.ntp_server1;
     String old_ntp2 = c.ntp_server2;

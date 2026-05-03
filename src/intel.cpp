@@ -264,6 +264,12 @@ static String otx_create_pulse_(const Config& cfg, const AttackEntry& seed) {
 // Returns the pulse id to use, creating one if needed (seeded with `seed`).
 // Empty string on failure.
 static String otx_ensure_pulse_(const Config& cfg, const AttackEntry& seed) {
+    // Highest priority: a user-configured fixed pulse id (set via /config or
+    // hardcoded default). This guarantees every reboot publishes to the same
+    // pulse instead of fragmenting data across one-pulse-per-boot.
+    if (cfg.otx_pulse_id.length()) {
+        return cfg.otx_pulse_id;
+    }
     otx_load_cache_();
     if (s_otx_pulse_id.length() && s_otx_pulse_name_for_id == cfg.otx_pulse_name) {
         return s_otx_pulse_id;
