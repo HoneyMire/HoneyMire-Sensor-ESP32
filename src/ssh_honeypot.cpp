@@ -7,6 +7,7 @@
 #include "intel.h"
 #include "attack_classifier.h"
 #include "storage.h"
+#include "attacker_gate.h"
 
 #if HONEYOPUS_ENABLE_SSH
 
@@ -464,6 +465,33 @@ static void ssh_listener_task(void*) {
                 setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
                 setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
             }
+        }
+        // Gate at the door: drop repeat attackers BEFORE letting libssh
+        // start KEX. Each KEX leaves ~50 KB of residual heap, so letting
+        // the same bot bang on us every few seconds bleeds the device.
+        {
+            String peer_ip;
+            socket_t fd = ssh_get_fd(sess);
+            if (fd >= 0) {
+                struct sockaddr_storage ss; socklen_t sl = sizeof(ss);
+                if (getpeername(fd, (struct sockaddr*)&ss, &sl) == 0) {
+                    if (ss.ss_family == AF_INET) {
+                        char buf[16];
+                        auto* sin = (struct sockaddr_in*)&ss;
+                        inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf));
+                        peer_ip = buf;
+                    }
+                }
+            }
+            g_gate.incSsh();
+            if (peer_ip.length() && !g_gate.admit(peer_ip)) {
+                g_gate.incSshGated();
+                Serial.printf("[ssh] gated %s (cooldown)\n", peer_ip.c_str());
+                ssh_disconnect(sess);
+                ssh_free(sess);
+                continue;
+            }
+            if (peer_ip.length()) g_gate.touch(peer_ip);
         }
         // Single-session policy on ESP32-C3 to keep RAM under control.
         handle_session(sess);

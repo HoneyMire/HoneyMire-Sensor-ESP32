@@ -7,6 +7,7 @@
 #include "intel.h"
 #include "attack_classifier.h"
 #include "storage.h"
+#include "attacker_gate.h"
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -182,6 +183,7 @@ static void tn_worker_task(void*) {
         tn_finalize_inline(s);
         delete s;
         if (s_active > 0) s_active--;
+        g_gate.setTelnetActive(s_active);
     }
 }
 
@@ -196,6 +198,7 @@ static void tn_finalize(TnSession* s) {
     tn_finalize_inline(s);
     delete s;
     if (s_active > 0) s_active--;
+    g_gate.setTelnetActive(s_active);
 }
 
 static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
@@ -274,13 +277,23 @@ static void tn_on_timeout(void* /*arg*/, AsyncClient* c, uint32_t /*time*/) {
 static void tn_on_client(void* /*arg*/, AsyncClient* c) {
     if (!c) return;
     if (!g_config.get().telnet_enabled) { c->close(); return; }
+    g_gate.incTelnet();
+    String peer_ip = c->remoteIP().toString();
+    if (!g_gate.admit(peer_ip)) {
+        g_gate.incTelnetGated();
+        Serial.printf("[telnet] gated %s (cooldown)\n", peer_ip.c_str());
+        c->close();
+        return;
+    }
     if (s_active >= TN_MAX_CONCURRENT) {
         Serial.printf("[telnet] refusing connection from %s — at cap %u\n",
-                      c->remoteIP().toString().c_str(), (unsigned)TN_MAX_CONCURRENT);
+                      peer_ip.c_str(), (unsigned)TN_MAX_CONCURRENT);
         c->close();
         return;
     }
     s_active++;
+    g_gate.setTelnetActive(s_active);
+    g_gate.touch(peer_ip);
 
     auto* s = new TnSession();
     s->client = c;

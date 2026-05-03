@@ -33,6 +33,7 @@
 #include "telnet_honeypot.h"
 #include "ssh_honeypot.h"
 #include "intel.h"
+#include "attacker_gate.h"
 
 using namespace honeyopus;
 
@@ -128,14 +129,40 @@ void loop() {
             case NetMode::OnlineSTA:     mode = "sta"; break;
             case NetMode::FallbackAP:    mode = "ap"; break;
         }
-        Serial.printf("[health] up=%us heap=%u largest=%u min=%u mode=%s ip=%s ssh=%d\n",
+        Serial.printf("[health] up=%us heap=%u largest=%u min=%u mode=%s ip=%s "
+                      "ssh=%d tn_act=%u tn=%u/%u ssh=%u/%u web=%u\n",
                       (unsigned)(now / 1000),
                       (unsigned)ESP.getFreeHeap(),
                       (unsigned)ESP.getMaxAllocHeap(),
                       (unsigned)ESP.getMinFreeHeap(),
                       mode,
                       wifi_ip_string().c_str(),
-                      ssh_listener_running() ? 1 : 0);
+                      ssh_listener_running() ? 1 : 0,
+                      (unsigned)g_gate.telnetActive(),
+                      (unsigned)g_gate.telnetTotal(), (unsigned)g_gate.telnetGated(),
+                      (unsigned)g_gate.sshTotal(),    (unsigned)g_gate.sshGated(),
+                      (unsigned)g_gate.webTotal());
+    }
+
+    // Heap watchdog. libssh has known residual allocations after ssh_free
+    // (~50 KB lost per session even on a clean disconnect). Once the device
+    // has been beaten down to a sliver of heap and stays there, the
+    // dashboard goes dark and TCP backlogs collapse. Cleanly rebooting is
+    // far better than serving 503s for the rest of the uptime.
+    static uint32_t low_heap_since = 0;
+    constexpr size_t kCriticalHeap = 25000;
+    constexpr uint32_t kLowHeapRebootMs = 90000;
+    if (ESP.getFreeHeap() < kCriticalHeap) {
+        if (low_heap_since == 0) low_heap_since = now;
+        else if (now - low_heap_since > kLowHeapRebootMs) {
+            Serial.printf("[health] heap stuck low for %us — rebooting\n",
+                          (unsigned)((now - low_heap_since) / 1000));
+            Serial.flush();
+            delay(50);
+            ESP.restart();
+        }
+    } else {
+        low_heap_since = 0;
     }
 
     delay(5);

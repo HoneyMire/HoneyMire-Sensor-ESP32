@@ -6,6 +6,7 @@
 #include "ssh_honeypot.h"
 #include "intel.h"
 #include "attack_classifier.h"
+#include "attacker_gate.h"
 
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
@@ -205,6 +206,7 @@ static const size_t kWebMinHeap        = 20 * 1024;
 static const size_t kWebMinLargestBlk  = 6 * 1024;
 
 static bool web_heap_ok_(AsyncWebServerRequest* req, const char* tag) {
+    g_gate.incWeb();
     size_t free_heap = ESP.getFreeHeap();
     size_t largest   = ESP.getMaxAllocHeap();
     if (free_heap < kWebMinHeap || largest < kWebMinLargestBlk) {
