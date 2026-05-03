@@ -194,8 +194,36 @@ static AwsResponseFiller make_seg_filler(std::shared_ptr<SegPage> p) {
     };
 }
 
+// Heap-watermark below which we refuse to start a chunked response. The
+// AsyncWebServer's beginChunkedResponse internally allocates a response
+// object containing two std::function instances (~88 B each on this
+// toolchain), and an underlying TCP buffer. Under heap pressure
+// `operator new` throws std::bad_alloc, which propagates out of the
+// async_tcp callback and __terminate aborts the device. Bail out early
+// with a 503 in that case — clients can retry.
+static const size_t kWebMinHeap = 24 * 1024;
+
+static bool web_heap_ok_(AsyncWebServerRequest* req, const char* tag) {
+    size_t free_heap = ESP.getFreeHeap();
+    if (free_heap < kWebMinHeap) {
+        Serial.printf("[web] 503 %s — heap low (%u < %u)\n",
+                      tag, (unsigned)free_heap, (unsigned)kWebMinHeap);
+        auto* r = req->beginResponse(503, "text/plain",
+            "HoneyOpus is low on RAM, please retry in a few seconds.\n");
+        if (r) {
+            r->addHeader("Retry-After", "5");
+            req->send(r);
+        } else {
+            req->send(503);
+        }
+        return false;
+    }
+    return true;
+}
+
 static void send_dashboard(AsyncWebServerRequest* req) {
     if (!authed(req)) return req->requestAuthentication();
+    if (!web_heap_ok_(req, "/")) return;
 
     auto v = g_attack_log.recent(50);
     size_t total = g_attack_log.count();
@@ -361,6 +389,7 @@ static void send_dashboard(AsyncWebServerRequest* req) {
 
 static void send_config_page(AsyncWebServerRequest* req) {
     if (!authed(req)) return req->requestAuthentication();
+    if (!web_heap_ok_(req, "/config")) return;
     auto& c = g_config.get();
     auto pg = std::make_shared<SegPage>();
     pg->segs.reserve(80);
@@ -619,6 +648,7 @@ static void handle_clear_history(AsyncWebServerRequest* req) {
 static void send_play_page(AsyncWebServerRequest* req) {
     if (!authed(req)) return req->requestAuthentication();
     if (!req->hasParam("id")) { req->send(400, "text/plain", "missing id"); return; }
+    if (!web_heap_ok_(req, "/play")) return;
     uint32_t id = req->getParam("id")->value().toInt();
     AttackEntry e;
     if (!g_attack_log.getById(id, e) || !e.cast_path.length()) {
@@ -724,6 +754,7 @@ static void send_cast(AsyncWebServerRequest* req) {
 
 static void send_sessions_page(AsyncWebServerRequest* req) {
     if (!authed(req)) return req->requestAuthentication();
+    if (!web_heap_ok_(req, "/sessions")) return;
     auto names = storage_list_dir("/sessions");
     String body;
     body += FPSTR(PAGE_HEAD);

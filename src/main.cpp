@@ -15,7 +15,9 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <time.h>
+#include <new>
 #include <esp_task_wdt.h>
+#include <esp_system.h>
 
 #include "config.h"
 #include "display.h"
@@ -30,9 +32,25 @@
 
 using namespace honeyopus;
 
+// Last-resort guard. AsyncWebServer / mbedTLS / ArduinoJson all use plain
+// `new` and don't catch std::bad_alloc. When heap runs out, the unhandled
+// exception unwinds straight to __cxxabiv1::__terminate which aborts with
+// a confusing register dump. Restarting the device cleanly is far better:
+// the supervising network resilvers the listener within a few seconds.
+static void honeyopus_new_handler() {
+    Serial.printf("[heap] OOM — operator new failed (free=%u, largest=%u). "
+                  "Restarting.\n",
+                  (unsigned)ESP.getFreeHeap(),
+                  (unsigned)ESP.getMaxAllocHeap());
+    Serial.flush();
+    delay(50);
+    esp_restart();
+}
+
 void setup() {
     Serial.begin(115200);
     delay(150);
+    std::set_new_handler(honeyopus_new_handler);
     Serial.println();
     Serial.println("==== HoneyOpus booting ====");
     Serial.printf("chip: %s rev=%u  cpu=%uMHz  free_heap=%u\n",

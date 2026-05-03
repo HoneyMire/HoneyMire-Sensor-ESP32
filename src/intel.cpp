@@ -10,9 +10,28 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <esp_heap_caps.h>
 #include <vector>
 
 namespace honeyopus {
+
+// mbedTLS handshake on ESP32-C3 needs roughly 30-50 KB of contiguous heap.
+// If we attempt it below this watermark the handshake fails with -32512
+// (MBEDTLS_ERR_SSL_ALLOC_FAILED) and, worse, leaves the heap fragmented in
+// a way that subsequent LittleFS opens can trip lfs_file_close asserts.
+// Skip the request rather than risk the cascade.
+static const size_t kTlsMinHeap   = 40 * 1024;
+static const size_t kFlashMinHeap = 12 * 1024;
+
+static bool heap_ok_for_tls_(const char* tag) {
+    size_t free_heap = ESP.getFreeHeap();
+    if (free_heap < kTlsMinHeap) {
+        Serial.printf("[%s] skip — heap low (%u < %u)\n",
+                      tag, (unsigned)free_heap, (unsigned)kTlsMinHeap);
+        return false;
+    }
+    return true;
+}
 
 // ---- per-IP report cooldowns -------------------------------------------
 // AbuseIPDB enforces a 15-minute cooldown when an identical
@@ -101,6 +120,7 @@ bool intel_report_abuseipdb(AttackEntry& e) {
         Serial.printf("[abuseipdb] cooldown skip ip=%s\n", e.ip.c_str());
         return false;
     }
+    if (!heap_ok_for_tls_("abuseipdb")) return false;
 
     WiFiClientSecure cs;
     cs.setInsecure();
@@ -149,6 +169,12 @@ bool intel_report_abuseipdb(AttackEntry& e) {
 static SemaphoreHandle_t s_otx_mtx = nullptr;
 static String s_otx_pulse_id;
 static String s_otx_pulse_name_for_id;
+// Backoff after a failed pulse creation. We MUST NOT keep slamming
+// /pulses/create on every attack — under heap pressure it fails reliably,
+// burns OTX quota, and (worse) leaves the heap fragmented for the
+// LittleFS write that follows.
+static uint32_t s_otx_create_backoff_until = 0;
+static const uint32_t kOtxCreateBackoffSec = 5 * 60;
 
 static void otx_load_cache_() {
     if (!s_otx_mtx) s_otx_mtx = xSemaphoreCreateMutex();
@@ -175,6 +201,7 @@ static void otx_save_cache_(const String& id, const String& name_used) {
 // Create a new OTX pulse using cfg.otx_pulse_name; on success caches and
 // returns the new pulse id. Returns "" on failure.
 static String otx_create_pulse_(const Config& cfg) {
+    if (!heap_ok_for_tls_("otx-create")) return String();
     WiFiClientSecure cs; cs.setInsecure();
     HTTPClient http;
     if (!http.begin(cs, "https://otx.alienvault.com/api/v1/pulses/create")) return String();
@@ -218,9 +245,20 @@ static String otx_ensure_pulse_(const Config& cfg) {
     if (s_otx_pulse_id.length() && s_otx_pulse_name_for_id == cfg.otx_pulse_name) {
         return s_otx_pulse_id;
     }
-    // Stale or missing — create a fresh pulse and persist.
+    // Don't retry creation if we recently failed. Repeated /pulses/create
+    // attempts under heap pressure are how we triggered the lfs assertion.
+    uint32_t now = (uint32_t)(millis() / 1000);
+    if (now < s_otx_create_backoff_until) {
+        Serial.printf("[otx] create-backoff active for %us\n",
+                      (unsigned)(s_otx_create_backoff_until - now));
+        return String();
+    }
     String id = otx_create_pulse_(cfg);
-    if (id.length()) otx_save_cache_(id, cfg.otx_pulse_name);
+    if (id.length()) {
+        otx_save_cache_(id, cfg.otx_pulse_name);
+    } else {
+        s_otx_create_backoff_until = now + kOtxCreateBackoffSec;
+    }
     return id;
 }
 
@@ -240,6 +278,7 @@ bool intel_report_otx(AttackEntry& e) {
         Serial.printf("[otx] cooldown skip ip=%s\n", e.ip.c_str());
         return false;
     }
+    if (!heap_ok_for_tls_("otx")) return false;
 
     if (!s_otx_mtx) s_otx_mtx = xSemaphoreCreateMutex();
     xSemaphoreTake(s_otx_mtx, portMAX_DELAY);

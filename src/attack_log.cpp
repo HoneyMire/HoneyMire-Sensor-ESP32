@@ -126,9 +126,23 @@ bool AttackLog::begin() {
 uint32_t AttackLog::nextId() { LogLock lk(mtx_); return next_id_++; }
 
 void AttackLog::persistAppend_(const AttackEntry& e) {
+    // Under extreme heap pressure (typically right after a failed mbedTLS
+    // handshake) LittleFS.open can return a File whose underlying lfs_file
+    // wasn't successfully registered, and the RAII close in our destructor
+    // then trips an `lfs_mlist_isopen` assert and reboots the device. Skip
+    // the persist write in that window — the in-RAM cache still has the
+    // entry, and we'll compact-flush it later via rewriteAll_() once heap
+    // recovers. dirty_ keeps that compaction from being skipped.
+    if (ESP.getFreeHeap() < 12 * 1024) {
+        Serial.printf("[log] append skipped — heap low (%u)\n",
+                      (unsigned)ESP.getFreeHeap());
+        dirty_ = true;
+        return;
+    }
     File f = LittleFS.open(LOG_PATH, "a");
     if (!f) {
         Serial.printf("[log] append open failed for %s\n", LOG_PATH);
+        dirty_ = true;
         return;
     }
     JsonDocument d;
