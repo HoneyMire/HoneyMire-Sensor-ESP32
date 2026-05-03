@@ -39,13 +39,13 @@ void setup() {
                   ESP.getChipModel(), ESP.getChipRevision(),
                   ESP.getCpuFreqMHz(), ESP.getFreeHeap());
 
-    // Disable the FreeRTOS task watchdog. AsyncTCP-esphome subscribes its
-    // event-loop task to the WDT but only feeds it when network events
-    // arrive — so on a quiet network the task simply sleeps and the WDT
-    // panics ~30 s later even though nothing is wrong. There's no other
-    // task we genuinely need this watchdog to police; the interrupt WDT and
-    // brownout detector remain active.
-    esp_task_wdt_deinit();
+    // Bump the global task watchdog timeout from the 5 s default to 30 s so
+    // that legitimate slow operations (LittleFS rewrites, TLS handshakes for
+    // AbuseIPDB / OTX / GeoIP) on this single-core chip don't reboot us.
+    // AsyncTCP's WDT instrumentation is compiled out in platformio.ini
+    // (CONFIG_ASYNC_TCP_USE_WDT=0) because its event handlers do inline
+    // flash I/O for asciinema cast files which can stall on GC.
+    esp_task_wdt_init(30, true);
 
     g_display.begin();
     g_display.showBootLogo(2000);
