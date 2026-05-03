@@ -4,12 +4,104 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+#include <vector>
 
 namespace honeyopus {
+
+// In-memory GeoIP cache. Geolocation for an IP address effectively never
+// changes within a honeypot uptime, so once a free GeoIP provider tells us
+// (country, city, isp, asn, lat, lon) for an IP we can reuse it for every
+// subsequent attack from the same IP. This avoids:
+//   * burning quota on rate-limited providers (ip-api.com: 45 req/min)
+//   * blowing TLS heap on every repeat brute-forcer
+//   * flooding logs with empty lookups when the provider transiently 5xxs
+//
+// Bounded LRU; eviction is by oldest last_used (refreshed on hit).
+namespace {
+struct GeoEntry {
+    String   ip;
+    uint32_t last_used;     // millis()/1000 — touched on insert + hit
+    String   country;
+    String   country_code;
+    String   city;
+    String   region;
+    String   isp;
+    String   asn;
+    float    lat = 0.0f;
+    float    lon = 0.0f;
+};
+
+constexpr size_t kGeoCacheMax = 64;
+std::vector<GeoEntry> s_geo_cache;
+
+void geo_cache_apply_(const GeoEntry& g, AttackEntry& e) {
+    e.country      = g.country;
+    e.country_code = g.country_code;
+    e.city         = g.city;
+    e.region       = g.region;
+    e.isp          = g.isp;
+    e.asn          = g.asn;
+    e.lat          = g.lat;
+    e.lon          = g.lon;
+    e.geo_resolved = true;
+}
+
+bool geo_cache_lookup_(const String& ip, AttackEntry& e) {
+    uint32_t now = (uint32_t)(millis() / 1000);
+    for (auto& g : s_geo_cache) {
+        if (g.ip == ip) {
+            g.last_used = now;
+            geo_cache_apply_(g, e);
+            return true;
+        }
+    }
+    return false;
+}
+
+void geo_cache_store_(const AttackEntry& e) {
+    if (!e.geo_resolved || !e.ip.length()) return;
+    uint32_t now = (uint32_t)(millis() / 1000);
+    for (auto& g : s_geo_cache) {
+        if (g.ip == e.ip) {
+            g.last_used    = now;
+            g.country      = e.country;
+            g.country_code = e.country_code;
+            g.city         = e.city;
+            g.region       = e.region;
+            g.isp          = e.isp;
+            g.asn          = e.asn;
+            g.lat          = e.lat;
+            g.lon          = e.lon;
+            return;
+        }
+    }
+    if (s_geo_cache.size() >= kGeoCacheMax) {
+        size_t oldest = 0;
+        for (size_t i = 1; i < s_geo_cache.size(); ++i) {
+            if (s_geo_cache[i].last_used < s_geo_cache[oldest].last_used) oldest = i;
+        }
+        s_geo_cache.erase(s_geo_cache.begin() + oldest);
+    }
+    GeoEntry g;
+    g.ip           = e.ip;
+    g.last_used    = now;
+    g.country      = e.country;
+    g.country_code = e.country_code;
+    g.city         = e.city;
+    g.region       = e.region;
+    g.isp          = e.isp;
+    g.asn          = e.asn;
+    g.lat          = e.lat;
+    g.lon          = e.lon;
+    s_geo_cache.push_back(std::move(g));
+}
+} // namespace
 
 bool geoip_lookup(AttackEntry& e) {
     auto& cfg = g_config.get();
     if (!cfg.geoip_enabled) return false;
+
+    if (geo_cache_lookup_(e.ip, e)) return true;
 
     String url = cfg.geoip_url;
     int idx = url.indexOf("{ip}");
@@ -66,6 +158,7 @@ bool geoip_lookup(AttackEntry& e) {
     if (d["latitude"].is<float>())  e.lat = d["latitude"].as<float>();
     if (d["longitude"].is<float>()) e.lon = d["longitude"].as<float>();
     e.geo_resolved = e.country.length() || e.city.length() || e.lat != 0;
+    if (e.geo_resolved) geo_cache_store_(e);
     return e.geo_resolved;
 }
 
