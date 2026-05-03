@@ -202,8 +202,11 @@ static void otx_save_cache_(const String& id, const String& name_used) {
 }
 
 // Create a new OTX pulse using cfg.otx_pulse_name; on success caches and
-// returns the new pulse id. Returns "" on failure.
-static String otx_create_pulse_(const Config& cfg) {
+// returns the new pulse id. Returns "" on failure. Requires a seed entry —
+// OTX's /pulses/create rejects empty-indicators payloads with HTTP 400
+// ("Can't create pulse without indicators"), so we seed it with the attacker
+// IP from the attack that triggered creation.
+static String otx_create_pulse_(const Config& cfg, const AttackEntry& seed) {
     if (!heap_ok_for_tls_("otx-create")) return String();
     WiFiClientSecure cs; cs.setInsecure();
     HTTPClient http;
@@ -220,8 +223,14 @@ static String otx_create_pulse_(const Config& cfg) {
     d["public"] = false;
     JsonArray tags = d["tags"].to<JsonArray>();
     tags.add("honeypot"); tags.add("brute-force"); tags.add("ssh"); tags.add("telnet");
-    // Empty seed is fine — indicators are appended later via /indicators.
-    d["indicators"].to<JsonArray>();
+    JsonArray inds = d["indicators"].to<JsonArray>();
+    JsonObject i0 = inds.add<JsonObject>();
+    i0["type"]      = "IPv4";
+    i0["indicator"] = seed.ip;
+    i0["role"]      = "bruteforce";
+    i0["title"]     = (seed.protocol == "ssh")    ? "SSH login attempt"
+                    : (seed.protocol == "telnet") ? "Telnet login attempt"
+                    : (seed.protocol + " login attempt");
 
     String body; serializeJson(d, body);
     int code = http.POST(body);
@@ -242,8 +251,9 @@ static String otx_create_pulse_(const Config& cfg) {
     return id;
 }
 
-// Returns the pulse id to use, creating one if needed. Empty string on failure.
-static String otx_ensure_pulse_(const Config& cfg) {
+// Returns the pulse id to use, creating one if needed (seeded with `seed`).
+// Empty string on failure.
+static String otx_ensure_pulse_(const Config& cfg, const AttackEntry& seed) {
     otx_load_cache_();
     if (s_otx_pulse_id.length() && s_otx_pulse_name_for_id == cfg.otx_pulse_name) {
         return s_otx_pulse_id;
@@ -256,7 +266,7 @@ static String otx_ensure_pulse_(const Config& cfg) {
                       (unsigned)(s_otx_create_backoff_until - now));
         return String();
     }
-    String id = otx_create_pulse_(cfg);
+    String id = otx_create_pulse_(cfg, seed);
     if (id.length()) {
         otx_save_cache_(id, cfg.otx_pulse_name);
     } else {
@@ -285,7 +295,7 @@ bool intel_report_otx(AttackEntry& e) {
 
     if (!s_otx_mtx) s_otx_mtx = xSemaphoreCreateMutex();
     xSemaphoreTake(s_otx_mtx, portMAX_DELAY);
-    String pulse_id = otx_ensure_pulse_(cfg);
+    String pulse_id = otx_ensure_pulse_(cfg, e);
     if (!pulse_id.length()) {
         xSemaphoreGive(s_otx_mtx);
         return false;
