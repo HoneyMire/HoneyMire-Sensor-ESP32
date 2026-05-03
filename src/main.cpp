@@ -120,7 +120,25 @@ void setup() {
     // heap shifts around them). strdup() into never-freed buffers fixes it.
     apply_time_config();
 
-    web_begin();
+    // Start the web dashboard unless the user has explicitly disabled it
+    // AND we're in STA mode AND at least one intel reporter is active.
+    // In AP fallback / setup mode we ALWAYS start the web server, otherwise
+    // the user has no way to fix wifi credentials (the captive portal
+    // lives there). The intel-active check is also re-applied on toggle
+    // (web POST / serial menu), but we double-check here in case the
+    // saved state is inconsistent (e.g. NVS edited externally).
+    {
+        auto& c = g_config.get();
+        bool ap_mode  = (wifi_mode() == NetMode::FallbackAP);
+        bool start_ok = c.web_enabled || ap_mode || !intel_any_active(c);
+        if (start_ok) {
+            web_begin();
+        } else {
+            Serial.println("[web] disabled by config (web_enabled=false). "
+                           "Re-enable via serial menu 'w' or by clearing all "
+                           "intel reporters.");
+        }
+    }
     intel_begin();
     telnet_begin();
     ssh_begin();

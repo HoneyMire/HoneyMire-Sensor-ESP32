@@ -411,8 +411,24 @@ static void send_config_page(AsyncWebServerRequest* req) {
 
     addF(FPSTR(PAGE_HEAD));
     addF(FPSTR(PAGE_NAV));
-    addF(F("<div class='card'><h3>Configuration</h3>"
-           "<form method='POST' action='/config'>"));
+    addF(F("<div class='card'><h3>Configuration</h3>"));
+    if (req->hasParam("web_blocked")) {
+        addF(F("<div style='padding:10px 14px;border:1px solid #e94560;border-radius:8px;"
+               "background:#3a1424;color:#ffd2db;margin-bottom:12px'>"
+               "&#x26A0;&#xFE0F; Refused to disable the web dashboard: no threat-intel "
+               "reporter (AbuseIPDB / OTX / Hub) is enabled and credentialled. "
+               "Configure one first — otherwise the device would have no remote visibility.</div>"));
+    } else if (req->hasParam("web_off")) {
+        addF(F("<div style='padding:10px 14px;border:1px solid #f5a623;border-radius:8px;"
+               "background:#3a2814;color:#ffe5b8;margin-bottom:12px'>"
+               "&#x2705; Web dashboard will be <b>disabled at the next reboot</b>. "
+               "Re-enable from the serial menu (key <code>w</code>) or by reflashing.</div>"));
+    } else if (req->hasParam("saved")) {
+        addF(F("<div style='padding:10px 14px;border:1px solid #2ecc71;border-radius:8px;"
+               "background:#143a24;color:#c8f7d4;margin-bottom:12px'>"
+               "&#x2705; Saved.</div>"));
+    }
+    addF(F("<form method='POST' action='/config'>"));
 
     auto field = [&](const char* label, const char* name, const String& val, const char* type = "text") {
         String s; s.reserve(160 + val.length());
@@ -462,6 +478,15 @@ static void send_config_page(AsyncWebServerRequest* req) {
     addF(F("<p class='meta' style='grid-column:1/3;margin:-4px 0 0'>"
            "When enabled, browsers from outside the LAN must enter the user/password above. "
            "Local-network clients are always allowed in.</p>"));
+    addF(F("<hr style='grid-column:1/3;border:0;border-top:1px solid #2a2f4a;margin:8px 0'>"));
+    checkbox("Web dashboard enabled (uncheck to free RAM)", "web_enabled", c.web_enabled);
+    addF(F("<p class='meta' style='grid-column:1/3;margin:-4px 0 0'>"
+           "Disabling stops the HTTP dashboard at the next reboot, freeing "
+           "~30-50 KiB of internal heap. Requires at least one threat-intel "
+           "reporter (AbuseIPDB / OTX / Hub) to be enabled and credentialled, "
+           "otherwise the device would have no remote visibility. The serial "
+           "menu (key <code>w</code>) and the AP setup portal always remain "
+           "available for recovery.</p>"));
     sec_close();
 
     sec_open("\xF0\x9F\x8C\x8D Geolocation", false);
@@ -608,6 +633,8 @@ static void handle_config_post(AsyncWebServerRequest* req) {
     c.dashboard_auth_enabled = getBool("dashboard_auth_enabled", c.dashboard_auth_enabled);
     c.dashboard_user = get("dashboard_user", c.dashboard_user);
     c.dashboard_pass = get("dashboard_pass", c.dashboard_pass);
+    bool old_web = c.web_enabled;
+    c.web_enabled    = getBool("web_enabled", c.web_enabled);
     c.geoip_enabled  = getBool("geoip_enabled", c.geoip_enabled);
     c.geoip_url      = get("geoip_url", c.geoip_url);
     c.abuseipdb_enabled = getBool("abuseipdb_enabled", c.abuseipdb_enabled);
@@ -635,6 +662,17 @@ static void handle_config_post(AsyncWebServerRequest* req) {
     c.max_sessions       = getU16("max_sessions", c.max_sessions);
     c.max_attack_entries = getU16("max_attack_entries", c.max_attack_entries);
     c.max_session_dir_kb = getU16("max_session_dir_kb", c.max_session_dir_kb);
+
+    // Safety gate: refuse to disable the web dashboard when there's no
+    // active intel reporter, otherwise the device would have zero remote
+    // visibility (and the user might not realise until they need it).
+    bool web_blocked = false;
+    if (!c.web_enabled && old_web && !intel_any_active(c)) {
+        c.web_enabled = true;
+        web_blocked = true;
+        Serial.println("[web] refused to disable: no active intel reporter "
+                       "(AbuseIPDB / OTX / Hub) — keeping web ON");
+    }
     g_config.save();
 
     // If TZ or NTP servers changed, re-arm SNTP and re-set the kernel TZ env.
@@ -656,7 +694,13 @@ static void handle_config_post(AsyncWebServerRequest* req) {
     }
 
     auto* r = req->beginResponse(303);
-    r->addHeader("Location", "/config?saved=1");
+    if (web_blocked) {
+        r->addHeader("Location", "/config?saved=1&web_blocked=1");
+    } else if (old_web && !c.web_enabled) {
+        r->addHeader("Location", "/config?saved=1&web_off=1");
+    } else {
+        r->addHeader("Location", "/config?saved=1");
+    }
     req->send(r);
 }
 

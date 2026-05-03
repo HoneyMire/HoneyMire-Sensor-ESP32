@@ -63,6 +63,7 @@ bool ConfigStore::load() {
     cfg_.dashboard_auth_enabled = prefs_.getBool("dash_en", cfg_.dashboard_auth_enabled);
     cfg_.dashboard_user  = prefs_.getString("dash_u", cfg_.dashboard_user);
     cfg_.dashboard_pass  = prefs_.getString("dash_p", cfg_.dashboard_pass);
+    cfg_.web_enabled     = prefs_.getBool("web_en",  cfg_.web_enabled);
     cfg_.geoip_enabled   = prefs_.getBool("geo_en", cfg_.geoip_enabled);
     cfg_.geoip_url       = prefs_.getString("geo_url", cfg_.geoip_url);
     cfg_.abuseipdb_enabled = prefs_.getBool("aipdb_en", cfg_.abuseipdb_enabled);
@@ -101,6 +102,7 @@ bool ConfigStore::save() {
     prefs_.putBool("dash_en", cfg_.dashboard_auth_enabled);
     prefs_.putString("dash_u", cfg_.dashboard_user);
     prefs_.putString("dash_p", cfg_.dashboard_pass);
+    prefs_.putBool("web_en",  cfg_.web_enabled);
     prefs_.putBool("geo_en", cfg_.geoip_enabled);
     prefs_.putString("geo_url", cfg_.geoip_url);
     prefs_.putBool("aipdb_en", cfg_.abuseipdb_enabled);

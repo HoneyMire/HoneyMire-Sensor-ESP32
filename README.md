@@ -127,6 +127,23 @@ after first boot. Authentication is **automatically bypassed for clients on
 the local network** so you don't get prompted at home; remote clients always
 need to authenticate.
 
+### Disabling the web dashboard to free RAM
+
+The HTTP server (AsyncWebServer + handlers + listening socket) costs roughly
+30–50 KiB of internal heap. On the C3 / TQT-Pro that's significant — enough,
+for example, to let the Hub reporter ship a full asciicast inside a single
+TLS request. You can turn the web dashboard off:
+
+* **Config page** → *Dashboard auth* section → uncheck *Web dashboard enabled*.
+* **Serial menu** → key `w`.
+
+The change applies on the **next reboot**. As a safety net, the firmware
+**refuses to disable the web dashboard unless at least one threat-intel
+reporter (AbuseIPDB / OTX / Hub) is enabled and credentialled** — otherwise
+the device would have zero remote visibility. The serial menu and the AP
+setup portal always remain available regardless of this flag, so you can
+recover from a serial console even after disabling the web UI.
+
 ## Threat-intel reporting
 
 Both reporters run from a dedicated FreeRTOS task so the honeypot's I/O is

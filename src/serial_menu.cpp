@@ -36,6 +36,7 @@ static void show_menu_() {
     Serial.println("  9) List asciinema sessions");
     Serial.println("  s) Toggle SSH enabled");
     Serial.println("  t) Toggle Telnet enabled");
+    Serial.println("  w) Toggle Web dashboard (next reboot)");
     Serial.println("  k) Set AbuseIPDB API key");
     Serial.println("  o) Set AlienVault OTX API key");
     Serial.println("  u) Set HoneyOpus Hub URL");
@@ -66,6 +67,7 @@ static void show_config_() {
                   c.hub_enabled ? "ENABLED" : "disabled",
                   c.hub_url.length() ? c.hub_url.c_str() : "(unset)",
                   c.hub_token.length() ? "token set" : "no token");
+    Serial.printf("  web_dashboard   : %s\n", c.web_enabled ? "ENABLED" : "disabled");
     Serial.printf("  dashboard       : http://%s/  user=%s\n",
                   WiFi.localIP() == IPAddress() ? WiFi.softAPIP().toString().c_str()
                                                 : WiFi.localIP().toString().c_str(),
@@ -159,6 +161,25 @@ static void handle_menu_char_(char c) {
             cf.telnet_enabled = !cf.telnet_enabled;
             g_config.save();
             Serial.printf("  telnet_enabled = %d\n", (int)cf.telnet_enabled);
+            break;
+        }
+        case 'w': {
+            auto& cf = g_config.get();
+            if (cf.web_enabled) {
+                if (!intel_any_active(cf)) {
+                    Serial.println("  refusing to disable web: no threat-intel reporter is");
+                    Serial.println("  enabled with credentials (AbuseIPDB / OTX / Hub).");
+                    Serial.println("  Configure one first — otherwise this device would have");
+                    Serial.println("  zero remote visibility once web is off.");
+                    break;
+                }
+                cf.web_enabled = false;
+            } else {
+                cf.web_enabled = true;
+            }
+            g_config.save();
+            Serial.printf("  web_enabled = %d (takes effect at next reboot)\n",
+                          (int)cf.web_enabled);
             break;
         }
         case 'k': prompt_for_("abuseipdb_key"); return;

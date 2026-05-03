@@ -430,14 +430,15 @@ static void hub_fill_hardware_(JsonObject hw) {
 
 // Read at most kHubCastMaxBytes from the cast file. If we have to truncate,
 // walk back to the last newline so the consumer sees only complete events.
-static bool hub_load_cast_(const String& path, String& out, bool& truncated) {
+static bool hub_load_cast_(const String& path, String& out, bool& truncated,
+                           size_t cap_bytes) {
     out = "";
     truncated = false;
-    if (!path.length()) return false;
+    if (!path.length() || cap_bytes == 0) return false;
     File f = LittleFS.open(path, "r");
     if (!f) return false;
     size_t total = f.size();
-    size_t take  = total > kHubCastMaxBytes ? kHubCastMaxBytes : total;
+    size_t take  = total > cap_bytes ? cap_bytes : total;
     out.reserve(take + 1);
     uint8_t buf[512];
     size_t left = take;
@@ -567,23 +568,39 @@ bool intel_report_hub(AttackEntry& e) {
 
     if (e.cast_path.length()) {
         // The cast_v2 field is the largest contributor to heap pressure.
-        // Building the JSON body keeps a copy of the cast in RAM, then
-        // mbedTLS needs another 30-50 KiB on top for the TLS record
-        // buffers. If we don't have enough headroom we'd rather skip
-        // the cast (the hub can still index the attack metadata) than
-        // crash or fail the whole submission.
-        size_t free_now = ESP.getFreeHeap();
-        // Need: cast bytes (1x for the file in heap, 1x for the
-        // serialised JSON copy) + ~50 KiB for TLS + 16 KiB headroom.
-        size_t need = (kHubCastMaxBytes * 2) + 50 * 1024 + 16 * 1024;
-        if (free_now < need) {
-            Serial.printf("[hub] heap tight (free=%u need=%u) — submitting without cast_v2\n",
-                          (unsigned)free_now, (unsigned)need);
+        // Building the JSON body keeps the cast in RAM (once inside the
+        // JsonDocument pool, once again inside the serialised body String),
+        // and mbedTLS needs another ~40 KiB on top for record buffers when
+        // the hub URL is HTTPS. Plain HTTP is much cheaper.
+        //
+        // Rather than skip the cast entirely when free heap is tight (which
+        // is the common case on the C3 / TQT-Pro with the web dashboard
+        // running), we shrink the cap dynamically to what actually fits.
+        bool tls_url = cfg.hub_url.startsWith("https://");
+        size_t tls_overhead = tls_url ? 50 * 1024 : 8 * 1024;
+        size_t cushion      = 16 * 1024;
+        size_t free_now     = ESP.getFreeHeap();
+        size_t budget       = 0;
+        if (free_now > tls_overhead + cushion) {
+            // Two live copies of the cast (JsonDocument + serialised body).
+            budget = (free_now - tls_overhead - cushion) / 2;
+        }
+        size_t cap = (budget < kHubCastMaxBytes) ? budget : kHubCastMaxBytes;
+        // Below ~4 KiB the cast is essentially worthless; submit metadata
+        // only and mark it truncated so the hub UI can show the gap.
+        if (cap < 4 * 1024) {
+            Serial.printf("[hub] heap tight (free=%u, tls=%s) — submitting without cast_v2\n",
+                          (unsigned)free_now, tls_url ? "yes" : "no");
             ses["cast_truncated"] = true;
         } else {
+            if (cap < kHubCastMaxBytes) {
+                Serial.printf("[hub] heap=%u — capping cast at %u B (max %u)\n",
+                              (unsigned)free_now, (unsigned)cap,
+                              (unsigned)kHubCastMaxBytes);
+            }
             String cast;
             bool truncated = false;
-            if (hub_load_cast_(e.cast_path, cast, truncated)) {
+            if (hub_load_cast_(e.cast_path, cast, truncated, cap)) {
                 ses["cast_v2"]        = cast;
                 ses["cast_truncated"] = truncated;
             }

@@ -32,6 +32,16 @@ struct Config {
     String dashboard_user = "admin";
     String dashboard_pass = "honeyopus";
 
+    // Whether the web dashboard / API is started at boot. Disabling it
+    // frees ~30-50 KiB of internal heap (AsyncWebServer + handlers +
+    // listening socket buffers), which is significant on the C3 / TQT-Pro
+    // and helps the hub reporter fit a full asciicast in RAM during TLS.
+    // Only respected when WiFi comes up in STA mode — in the AP setup /
+    // fallback portal it is always forced on, otherwise the user could
+    // brick themselves out of recovery. Toggling the flag requires a
+    // reboot to take effect (we don't tear down a running AsyncTCP).
+    bool   web_enabled = true;
+
     // Geolocation
     bool   geoip_enabled  = true;
     // Default uses ip-api.com free endpoint (no key, ~45 req/min).
@@ -89,6 +99,17 @@ private:
 };
 
 extern ConfigStore g_config;
+
+// True if at least one threat-intel reporter is fully configured (toggle
+// on AND credentials present). Used to gate web-dashboard disable: if no
+// intelligence site is active, the user would lose all visibility into
+// the device — we refuse the toggle in that case.
+inline bool intel_any_active(const Config& c) {
+    if (c.abuseipdb_enabled && c.abuseipdb_key.length()) return true;
+    if (c.otx_enabled       && c.otx_key.length())       return true;
+    if (c.hub_enabled       && c.hub_url.length() && c.hub_token.length()) return true;
+    return false;
+}
 
 // Re-applies cfg.tz / cfg.ntp_server* to libc + lwIP SNTP. Safe to call from
 // any task. Internally the NTP server names are copied into static heap
