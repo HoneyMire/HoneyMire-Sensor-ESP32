@@ -60,6 +60,7 @@ bool ConfigStore::load() {
     cfg_.login_attempts_before_accept = prefs_.getUChar("lthresh", cfg_.login_attempts_before_accept);
     cfg_.telnet_enabled  = prefs_.getBool("tn_en", cfg_.telnet_enabled);
     cfg_.ssh_enabled     = prefs_.getBool("ssh_en", cfg_.ssh_enabled);
+    cfg_.dashboard_auth_enabled = prefs_.getBool("dash_en", cfg_.dashboard_auth_enabled);
     cfg_.dashboard_user  = prefs_.getString("dash_u", cfg_.dashboard_user);
     cfg_.dashboard_pass  = prefs_.getString("dash_p", cfg_.dashboard_pass);
     cfg_.geoip_enabled   = prefs_.getBool("geo_en", cfg_.geoip_enabled);
@@ -93,6 +94,7 @@ bool ConfigStore::save() {
     prefs_.putUChar("lthresh", cfg_.login_attempts_before_accept);
     prefs_.putBool("tn_en", cfg_.telnet_enabled);
     prefs_.putBool("ssh_en", cfg_.ssh_enabled);
+    prefs_.putBool("dash_en", cfg_.dashboard_auth_enabled);
     prefs_.putString("dash_u", cfg_.dashboard_user);
     prefs_.putString("dash_p", cfg_.dashboard_pass);
     prefs_.putBool("geo_en", cfg_.geoip_enabled);

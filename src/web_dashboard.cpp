@@ -101,6 +101,7 @@ static const char PAGE_FOOT[] PROGMEM = R"HTML(
 
 static bool authed(AsyncWebServerRequest* req) {
     auto& c = g_config.get();
+    if (!c.dashboard_auth_enabled) return true;
     if (c.dashboard_user.length() == 0) return true;
     // Skip basic-auth for clients on the local network — owners poking at
     // HoneyOpus from their LAN shouldn't have to enter credentials, and the
@@ -411,10 +412,12 @@ static void send_config_page(AsyncWebServerRequest* req) {
     sec_close();
 
     sec_open("\xF0\x9F\x94\x90 Dashboard auth", false);
+    checkbox("Require login", "dashboard_auth_enabled", c.dashboard_auth_enabled);
     field("User", "dashboard_user", c.dashboard_user);
     field("Password", "dashboard_pass", c.dashboard_pass, "password");
     addF(F("<p class='meta' style='grid-column:1/3;margin:-4px 0 0'>"
-           "Authentication is automatically bypassed for clients on the local network.</p>"));
+           "When enabled, browsers from outside the LAN must enter the user/password above. "
+           "Local-network clients are always allowed in.</p>"));
     sec_close();
 
     sec_open("\xF0\x9F\x8C\x8D Geolocation", false);
@@ -552,6 +555,7 @@ static void handle_config_post(AsyncWebServerRequest* req) {
     c.fake_hostname  = get("fake_hostname", c.fake_hostname);
     c.fake_user      = get("fake_user", c.fake_user);
     c.login_attempts_before_accept = getU8("login_attempts_before_accept", c.login_attempts_before_accept);
+    c.dashboard_auth_enabled = getBool("dashboard_auth_enabled", c.dashboard_auth_enabled);
     c.dashboard_user = get("dashboard_user", c.dashboard_user);
     c.dashboard_pass = get("dashboard_pass", c.dashboard_pass);
     c.geoip_enabled  = getBool("geoip_enabled", c.geoip_enabled);

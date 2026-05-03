@@ -21,6 +21,7 @@ struct Config {
     bool   ssh_enabled    = true;
 
     // Dashboard auth
+    bool   dashboard_auth_enabled = false;
     String dashboard_user = "admin";
     String dashboard_pass = "honeyopus";
 
