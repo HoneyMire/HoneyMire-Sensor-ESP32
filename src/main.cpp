@@ -150,7 +150,7 @@ void loop() {
     // dashboard goes dark and TCP backlogs collapse. Cleanly rebooting is
     // far better than serving 503s for the rest of the uptime.
     static uint32_t low_heap_since = 0;
-    constexpr size_t kCriticalHeap = 25000;
+    constexpr size_t kCriticalHeap = 45000;
     constexpr uint32_t kLowHeapRebootMs = 90000;
     if (ESP.getFreeHeap() < kCriticalHeap) {
         if (low_heap_since == 0) low_heap_since = now;

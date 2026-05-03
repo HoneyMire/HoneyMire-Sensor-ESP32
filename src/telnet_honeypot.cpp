@@ -190,6 +190,16 @@ static void tn_worker_task(void*) {
 static void tn_finalize(TnSession* s) {
     if (s->finalized) return;
     s->finalized = true;
+    // Detach AsyncTCP callbacks so any further events on this client (e.g.
+    // onDisconnect arriving after onError finalized us) won't deref a freed
+    // TnSession. We pass nullptr both as cb and arg.
+    if (s->client) {
+        s->client->onDisconnect(nullptr, nullptr);
+        s->client->onError(nullptr, nullptr);
+        s->client->onTimeout(nullptr, nullptr);
+        s->client->onData(nullptr, nullptr);
+        s->client->onPoll(nullptr, nullptr);
+    }
     // Hand the slow FS / intel work off to the worker so we don't block the
     // AsyncTCP poll task (lwIP gets very upset about that under load).
     TnFinalizeJob j{ .sess = s };
@@ -268,10 +278,29 @@ static void tn_on_error(void* arg, AsyncClient* /*c*/, int8_t error) {
     auto* s = (TnSession*)arg;
     if (!s) return;
     Serial.printf("[telnet] error %d on id=%u\n", (int)error, (unsigned)s->entry.id);
+    // AsyncTCP does NOT guarantee onDisconnect fires after onError; without
+    // this the TnSession (and ~100 KB of associated state) leaks forever.
+    tn_finalize(s);
 }
 
-static void tn_on_timeout(void* /*arg*/, AsyncClient* c, uint32_t /*time*/) {
+static void tn_on_timeout(void* arg, AsyncClient* c, uint32_t /*time*/) {
+    auto* s = (TnSession*)arg;
     if (c) c->close();
+    if (s) tn_finalize(s);
+}
+
+static void tn_on_poll(void* arg, AsyncClient* c) {
+    auto* s = (TnSession*)arg;
+    if (!s || !c) return;
+    // Hard wall-clock cap. Bots either dump their payload in <1 s or open a
+    // TCP socket and idle to pin the listener; either way 15 s is plenty to
+    // capture intent.
+    constexpr uint32_t kTnMaxSessionMs = 15000;
+    if (millis() - s->t0 > kTnMaxSessionMs) {
+        Serial.printf("[telnet] session %u capped at %ums\n",
+                      (unsigned)s->entry.id, (unsigned)kTnMaxSessionMs);
+        c->close();
+    }
 }
 
 static void tn_on_client(void* /*arg*/, AsyncClient* c) {
@@ -313,13 +342,14 @@ static void tn_on_client(void* /*arg*/, AsyncClient* c) {
     g_display.showAttack(AttackKind::Telnet);
 
     c->setNoDelay(true);
-    c->setRxTimeout(120);    // seconds before lwIP gives up if peer goes silent
-    c->setAckTimeout(15000);
+    c->setRxTimeout(15);     // seconds before lwIP gives up if peer goes silent
+    c->setAckTimeout(10000);
 
     c->onDisconnect(tn_on_disconnect, s);
     c->onError(tn_on_error, s);
     c->onTimeout(tn_on_timeout, s);
     c->onData(tn_on_data, s);
+    c->onPoll(tn_on_poll, s);
 
     tn_send_iac_neg(s);
     tn_prompt_login(s);
