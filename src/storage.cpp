@@ -14,9 +14,30 @@ bool fs_exists_silent(const char* fs_path) {
 }
 
 bool storage_begin() {
-    if (!LittleFS.begin(true)) {
-        Serial.println("[fs] mount failed even after format");
-        return false;
+    // First boot on a freshly flashed board: the data partition is empty
+    // and LittleFS prints "Corrupted dir pair", "mount failed (-84)",
+    // "Failed to initialize LittleFS" before silently formatting. On a
+    // 16 MB N16R8 the partition is 12 MB and the format takes several
+    // seconds with no output, which looks indistinguishable from a hang.
+    // We bracket it with explicit log lines and try a deliberate
+    // format-and-retry if the auto-format path didn't take.
+    Serial.println("[fs] mounting LittleFS...");
+    if (LittleFS.begin(false)) {
+        Serial.printf("[fs] mounted (%u/%u KiB used)\n",
+                      (unsigned)(LittleFS.usedBytes() / 1024),
+                      (unsigned)(LittleFS.totalBytes() / 1024));
+    } else {
+        Serial.println("[fs] mount failed — formatting (this can take 5-15 s on 16 MB flash)");
+        if (!LittleFS.format()) {
+            Serial.println("[fs] format failed");
+            return false;
+        }
+        if (!LittleFS.begin(false)) {
+            Serial.println("[fs] mount failed even after explicit format");
+            return false;
+        }
+        Serial.printf("[fs] formatted and mounted (%u KiB total)\n",
+                      (unsigned)(LittleFS.totalBytes() / 1024));
     }
     if (!fs_exists_silent("/sessions")) LittleFS.mkdir("/sessions");
     if (!fs_exists_silent("/attacks"))  LittleFS.mkdir("/attacks");

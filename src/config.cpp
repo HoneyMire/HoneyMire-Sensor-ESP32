@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include <esp_sntp.h>
+#include <esp_log.h>
 
 namespace honeyopus {
 
@@ -42,11 +43,24 @@ void apply_time_config() {
 }
 
 bool ConfigStore::begin() {
+    // First-boot NVS keys legitimately don't exist yet, but Arduino-ESP32's
+    // Preferences class logs an ERROR for every missing getString/getBool.
+    // That floods the console with ~20 scary-looking "NOT_FOUND" lines on
+    // a fresh board, which makes users think something is broken. Silence
+    // the Preferences tag for the duration of load(); we still notice real
+    // failures because begin() returns false.
+    esp_log_level_set("Preferences", ESP_LOG_NONE);
     if (!prefs_.begin(NS, false)) {
         Serial.println("[cfg] NVS open failed");
         return false;
     }
-    return load();
+    bool first_run = !prefs_.isKey("hostname");
+    bool ok = load();
+    if (first_run) {
+        Serial.println("[cfg] first-boot NVS: writing defaults");
+        save();
+    }
+    return ok;
 }
 
 bool ConfigStore::load() {
