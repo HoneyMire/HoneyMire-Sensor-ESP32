@@ -15,6 +15,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <time.h>
+#include <sys/socket.h>
+#include <lwip/sockets.h>
 
 #include <libssh_esp32.h>
 #include <libssh/libssh.h>
@@ -22,6 +24,19 @@
 #include <libssh/callbacks.h>
 
 namespace honeyopus {
+
+// Per-session inactivity ceiling. libssh's blocking ssh_message_get / recv
+// has no built-in timeout, so a slow-loris attacker (TCP connect, finish
+// KEX, then sit silent) would pin the SSH listener forever — and on
+// ESP32-C3 each live libssh session occupies ~100 KB of heap. We've seen
+// largest-block collapse from ~104 KB to ~9 KB the moment one such peer
+// arrives, fragmenting the heap badly enough that AsyncWebServer can no
+// longer accept new connections.
+//
+// SO_RCVTIMEO/SO_SNDTIMEO on the session FD makes recv/send return
+// EAGAIN, which libssh propagates as a session error so handle_session
+// exits cleanly and frees the buffers.
+static const int kSshSocketTimeoutSec = 60;
 
 // LittleFS in Arduino-ESP32 mounts at the VFS base "/littlefs". libssh fopen()s
 // from this VFS path; the Arduino LittleFS API uses paths *without* the prefix.
@@ -431,6 +446,19 @@ static void ssh_listener_task(void*) {
             ssh_free(sess);
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
+        }
+        // Cap blocking time inside libssh. Without these, a peer that
+        // completes the TCP handshake and then never sends another byte
+        // wedges the listener forever (and pins ~100 KB of libssh heap).
+        {
+            socket_t fd = ssh_get_fd(sess);
+            if (fd >= 0) {
+                struct timeval tv;
+                tv.tv_sec  = kSshSocketTimeoutSec;
+                tv.tv_usec = 0;
+                setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+                setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            }
         }
         // Single-session policy on ESP32-C3 to keep RAM under control.
         handle_session(sess);
