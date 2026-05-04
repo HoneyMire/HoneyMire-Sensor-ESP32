@@ -98,6 +98,12 @@ void setup() {
         TaskHandle_t idle0 = xTaskGetIdleTaskHandle();
         if (idle0) esp_task_wdt_delete(idle0);
     }
+    // Subscribe the Arduino loop() task itself. Without this nothing watches
+    // the main loop — and we've seen it wedge silently for >10 min after a
+    // close(true) on a stuck telnet client. With the loop task subscribed,
+    // a hang is auto-recovered within 60 s with a clear panic log instead
+    // of the device dropping off Wi-Fi and never coming back.
+    esp_task_wdt_add(nullptr);
 
     g_display.begin();
     g_display.showBootLogo(2000);
@@ -145,6 +151,7 @@ void setup() {
 }
 
 void loop() {
+    esp_task_wdt_reset();
     serial_menu_loop();
     wifi_loop();
     g_display.loop();
