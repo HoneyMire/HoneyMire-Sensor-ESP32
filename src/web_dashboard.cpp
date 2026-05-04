@@ -41,7 +41,12 @@ main{padding:18px;max-width:1100px;margin:0 auto}
 .kpi span{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--bord);text-align:left;vertical-align:top}
-td.when{white-space:nowrap}
+td.when,td.nowrap,td.creds,td.rep,td.src{white-space:nowrap}
+.trunc{display:inline-block;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;white-space:nowrap;max-width:100%}
+.trunc.user{max-width:12ch}
+.trunc.pass{max-width:18ch}
+.trunc.ip{max-width:16ch}
+.trunc.cmd{max-width:32ch}
 th.c,td.c{text-align:center}
 th{color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:11px}
 tr:hover td{background:#1b1f29}
@@ -312,8 +317,10 @@ static void send_dashboard(AsyncWebServerRequest* req) {
             row += (e.protocol == "ssh" ? "ssh" : "tn");
             row += "'>";
             row += e.protocol;
-            row += "</span></td><td><code>";
-            row += e.ip;
+            row += "</span></td><td class='src'><code class='trunc ip' title='";
+            row += html_escape(e.ip);
+            row += "'>";
+            row += html_escape(e.ip);
             row += "</code></td><td>";
             if (intel_ip_is_private(e.ip)) {
                 row += F("<span class='flag' title='LAN / private network' aria-label='LAN'>&#x1F3E0;</span>");
@@ -343,9 +350,13 @@ static void send_dashboard(AsyncWebServerRequest* req) {
             row += pv.alt;
             row += "'>";
             row += pv.icon;
-            row += "</span></td><td><code>";
+            row += "</span></td><td class='creds'><code class='trunc user' title='";
             row += html_escape(e.user);
-            row += "</code> / <code>";
+            row += "'>";
+            row += html_escape(e.user);
+            row += "</code> / <code class='trunc pass' title='";
+            row += html_escape(e.pass);
+            row += "'>";
             row += html_escape(e.pass);
             row += "</code></td>";
             if (e.auth_attempts > 0) {
@@ -375,7 +386,7 @@ static void send_dashboard(AsyncWebServerRequest* req) {
                     (unsigned)e.id, (unsigned)e.id);
                 row += rec;
             } else row += "—";
-            row += "</td><td class='c'>";
+            row += "</td><td class='c rep'>";
             row += e.reported_abuseipdb
                 ? F("<span class='repicon' title='AbuseIPDB reported' aria-label='AbuseIPDB reported'>&#x1F6E1;&#xFE0F;</span>")
                 : F("<span class='repicon off' title='AbuseIPDB not reported' aria-label='AbuseIPDB not reported'>&#x1F6E1;&#xFE0F;</span>");
