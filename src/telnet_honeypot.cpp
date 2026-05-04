@@ -99,9 +99,13 @@ struct TnSession {
 // Send `n` bytes, looping over short writes. AsyncTCP's add()/write() may
 // accept fewer bytes than asked when its internal pbuf chain is full; if we
 // don't loop, the tail of any large message (e.g. shell MOTD) is silently lost.
-static void tn_send(TnSession* s, const char* data, size_t n) {
+// Send raw bytes to the attacker. If `record` is false the bytes are not
+// written to the asciinema cast — used for telnet IAC negotiation, which is
+// protocol noise that a real telnet client consumes silently. Recording it
+// shows up as U+FFFD replacement chars on playback.
+static void tn_send(TnSession* s, const char* data, size_t n, bool record = true) {
     if (!s || !s->client || !data || n == 0) return;
-    s->cast.out(data, n);
+    if (record) s->cast.out(data, n);
     size_t off = 0;
     uint32_t deadline = millis() + 4000;
     while (off < n && s->client->connected() && millis() < deadline) {
@@ -128,7 +132,7 @@ static void tn_send_iac_neg(TnSession* s) {
         (char)255, (char)251, (char)3,    // WILL SUPPRESS-GO-AHEAD
         (char)255, (char)254, (char)34,   // DONT LINEMODE
     };
-    tn_send(s, iac, sizeof(iac));
+    tn_send(s, iac, sizeof(iac), /*record=*/false);
 }
 
 static void tn_prompt_login(TnSession* s) {
@@ -244,7 +248,9 @@ static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
     if (!s || s->phase == TnSession::P_DEAD) return;
     const uint8_t* p = (const uint8_t*)data;
 
-    s->cast.in((const char*)p, len);
+    // Don't bulk-record the raw input: it includes the attacker's IAC
+    // replies (e.g. IAC WILL TTYPE) which look like U+FFFD garbage on
+    // playback. We record per-byte further down, after IAC stripping.
 
     for (size_t i = 0; i < len; ++i) {
         uint8_t ch = p[i];
@@ -265,6 +271,7 @@ static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
         // Line editing.
         if (ch == '\r' || ch == '\n') {
             if (ch == '\r' && i + 1 < len && (p[i+1] == '\n' || p[i+1] == '\0')) i++;
+            s->cast.in("\r\n", 2);
             tn_send(s, "\r\n", 2);
             tn_handle_complete_line(s);
             continue;
@@ -272,11 +279,13 @@ static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
         if (ch == 0x7f || ch == 0x08) {
             if (s->line_buf.length()) {
                 s->line_buf.remove(s->line_buf.length() - 1);
+                s->cast.in((const char*)&ch, 1);
                 if (s->phase != TnSession::P_PASS) tn_send(s, "\b \b", 3);
             }
             continue;
         }
         if (ch == 0x03) { // Ctrl-C
+            s->cast.in((const char*)&ch, 1);
             tn_send(s, "^C\r\n", 4);
             s->line_buf = "";
             if (s->phase == TnSession::P_SHELL) tn_send(s, s->shell.prompt());
@@ -285,6 +294,7 @@ static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
         if (ch < 0x20) continue;
         if (s->line_buf.length() > 256) continue;
         s->line_buf += (char)ch;
+        s->cast.in((const char*)&ch, 1);
         if (s->phase == TnSession::P_PASS) {
             tn_send(s, "*", 1);
         } else {
