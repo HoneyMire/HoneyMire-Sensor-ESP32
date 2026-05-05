@@ -75,11 +75,13 @@ void storage_trim_sessions(uint16_t max_keep) {
     // names are newest-first; delete the tail.
     for (size_t i = max_keep; i < names.size(); ++i) {
         String full = String("/sessions/") + names[i];
-        LittleFS.remove(full);
+        if (fs_exists_silent(full.c_str())) {
+            LittleFS.remove(full);
+        }
         // Drop the matching events sidecar if any (only for .cast bases).
         if (full.endsWith(".cast")) {
             String side = full + ".events.jsonl";
-            if (fs_exists_silent(side.c_str() + 0)) LittleFS.remove(side);
+            if (fs_exists_silent(side.c_str())) LittleFS.remove(side);
         }
     }
 }
