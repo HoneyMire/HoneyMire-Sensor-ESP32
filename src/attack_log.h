@@ -22,6 +22,7 @@ struct AttackEntry {
     uint16_t commands = 0;
     uint32_t duration_ms = 0;
     String   cast_path;         // /sessions/<file>.cast or empty
+    String   telnet_persona;    // Telnet server persona (e.g., "Ubuntu", "BusyBox", "RouterOS", "OpenWrt", "DVRDVS", "HiLinux"), empty for SSH
 
     // Behavioural fingerprint
     String   profile;           // classifier label: "mirai", "iot-loader", "scanner", "manual", "scripted", "creds-only", "creds-probe", "lan", "unknown"

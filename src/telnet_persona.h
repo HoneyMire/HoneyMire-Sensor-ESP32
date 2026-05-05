@@ -30,4 +30,7 @@ TelnetPersona telnet_persona_random();
 // Get the profile for a given persona.
 const PersonaProfile& telnet_persona_profile(TelnetPersona p);
 
+// Get the name of a persona as a string (e.g., "Ubuntu", "BusyBox").
+const char* telnet_persona_name(TelnetPersona p);
+
 } // namespace honeyopus

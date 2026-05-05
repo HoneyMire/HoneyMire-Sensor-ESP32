@@ -211,6 +211,7 @@ static void tn_handle_complete_line(TnSession* s) {
 static void tn_finalize_inline(TnSession* s) {
     s->entry.duration_ms = millis() - s->t0;
     s->entry.commands = s->shell.commandsRun();
+    s->entry.telnet_persona = telnet_persona_name(s->persona);
     classify_attack(s->entry, s->shell.commandSummary(), s->shell.firstCmdMs(), s->shell.lastCmdMs());
     s->cast.close();
     g_attack_log.append(s->entry);
@@ -219,10 +220,11 @@ static void tn_finalize_inline(TnSession* s) {
         auto& c = g_config.get();
         storage_enforce_session_quota(c.max_sessions, (size_t)c.max_session_dir_kb * 1024);
     }
-    Serial.printf("[telnet] session done id=%u ip=%s user=%s pass=%s authed=%d cmds=%u\n",
+    Serial.printf("[telnet] session done id=%u ip=%s user=%s pass=%s authed=%d cmds=%u persona=%s\n",
                   (unsigned)s->entry.id, s->entry.ip.c_str(),
                   s->entry.user.c_str(), s->entry.pass.c_str(),
-                  (int)s->entry.authenticated, s->entry.commands);
+                  (int)s->entry.authenticated, s->entry.commands,
+                  s->entry.telnet_persona.c_str());
 }
 
 static void tn_worker_task(void*) {

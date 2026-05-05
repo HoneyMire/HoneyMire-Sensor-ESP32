@@ -71,4 +71,16 @@ const PersonaProfile& telnet_persona_profile(TelnetPersona p) {
     return profiles[(int)p];
 }
 
+const char* telnet_persona_name(TelnetPersona p) {
+    switch (p) {
+        case TelnetPersona::Ubuntu:   return "Ubuntu";
+        case TelnetPersona::BusyBox:  return "BusyBox";
+        case TelnetPersona::RouterOS: return "RouterOS";
+        case TelnetPersona::OpenWrt:  return "OpenWrt";
+        case TelnetPersona::DVRDVS:   return "DVRDVS";
+        case TelnetPersona::HiLinux:  return "HiLinux";
+        default:                      return "Unknown";
+    }
+}
+
 } // namespace honeyopus

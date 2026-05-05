@@ -49,6 +49,7 @@ void AttackEntry::toJson(JsonObject o) const {
     o["commands"]      = commands;
     o["duration_ms"]   = duration_ms;
     o["cast_path"]     = cast_path;
+    o["telnet_persona"] = telnet_persona;
     o["profile"]       = profile;
     o["profile_conf"]  = profile_confidence;
     o["country"]       = country;
@@ -80,6 +81,7 @@ AttackEntry AttackEntry::fromJson(JsonObjectConst o) {
     e.commands      = o["commands"]      | 0;
     e.duration_ms   = o["duration_ms"]   | 0;
     e.cast_path     = (const char*)(o["cast_path"]     | "");
+    e.telnet_persona = (const char*)(o["telnet_persona"] | "");
     e.profile       = (const char*)(o["profile"]       | "");
     e.profile_confidence = (uint8_t)(o["profile_conf"] | 0);
     e.country       = (const char*)(o["country"]       | "");
