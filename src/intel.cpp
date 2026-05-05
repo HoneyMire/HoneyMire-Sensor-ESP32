@@ -397,13 +397,25 @@ bool intel_report_otx(AttackEntry& e) {
 // HoneyOpus Hub reporter (docs/INGEST_PROTOCOL.md, schema "honeyopus.attack/v1")
 // =====================================================================
 
-// Per-board cast cap. Hub spec hard-limits the cast_v2 field to 200 KiB
-// after JSON encoding; we cap before encoding to leave headroom and to
-// avoid pushing C3 heap over the cliff. Override per env in platformio.ini.
-#ifndef HONEYOPUS_HUB_CAST_MAX_KB
-#define HONEYOPUS_HUB_CAST_MAX_KB 100
+// Per-board events-payload cap. Spec §7 caps `events` at 96 KiB total
+// (sum of `d` field lengths). The C3 has the tightest heap so we cap
+// lower there; the S3 boards run with the protocol max. Override per env.
+//
+// HONEYOPUS_HUB_CAST_MAX_KB is accepted as a backwards-compatible alias
+// of HONEYOPUS_HUB_EVENTS_MAX_KB so existing platformio.ini fragments
+// keep working through this protocol revision.
+#ifndef HONEYOPUS_HUB_EVENTS_MAX_KB
+#  ifdef  HONEYOPUS_HUB_CAST_MAX_KB
+#    define HONEYOPUS_HUB_EVENTS_MAX_KB HONEYOPUS_HUB_CAST_MAX_KB
+#  else
+#    define HONEYOPUS_HUB_EVENTS_MAX_KB 96
+#  endif
 #endif
-static const size_t kHubCastMaxBytes = (size_t)HONEYOPUS_HUB_CAST_MAX_KB * 1024;
+static const size_t kHubEventsMaxBytes = (size_t)HONEYOPUS_HUB_EVENTS_MAX_KB * 1024;
+// Spec §7 hard limits — the hub stops parsing past these regardless of
+// what the firmware sends.
+static const size_t kHubMaxEvents     = 2000;
+static const size_t kHubMaxEventBytes = 16 * 1024;
 
 // Hub does not need TLS handshake quite as much heap as the ones above
 // because the body is large but the request is single-shot; still we use
@@ -428,34 +440,125 @@ static void hub_fill_hardware_(JsonObject hw) {
     hw["cpu_mhz"]  = (uint32_t)getCpuFrequencyMhz();
 }
 
-// Read at most kHubCastMaxBytes from the cast file. If we have to truncate,
-// walk back to the last newline so the consumer sees only complete events.
-static bool hub_load_cast_(const String& path, String& out, bool& truncated,
-                           size_t cap_bytes) {
-    out = "";
+// Parse one event line of an asciicast v2 file:
+//   [<time>,"<k>","<escaped-data>"]
+// Returns false on malformed input. `k` receives 'i' or 'o'; (d_off, d_len)
+// describe the slice of `line` holding the already-JSON-escaped data
+// payload (i.e. the bytes between the d field's surrounding quotes,
+// suitable to embed verbatim into another JSON string).
+static bool hub_parse_cast_line_(const char* line, size_t len,
+                                 char& k, size_t& d_off, size_t& d_len) {
+    size_t i = 0;
+    while (i < len && line[i] != ',') i++;          // skip [time
+    if (i >= len) return false;
+    i++;
+    if (i + 3 >= len || line[i] != '"') return false;
+    k = line[i + 1];
+    if ((k != 'i' && k != 'o') || line[i + 2] != '"') return false;
+    i += 3;
+    if (i >= len || line[i] != ',') return false;
+    i++;
+    if (i >= len || line[i] != '"') return false;
+    i++;
+    d_off = i;
+    // Find the closing quote, skipping any escaped quotes. Track parity
+    // of immediately-preceding backslashes — an even count means the
+    // quote is unescaped and terminates the string.
+    while (i < len) {
+        if (line[i] == '"') {
+            size_t bs = 0, p = i;
+            while (p > d_off && line[p - 1] == '\\') { bs++; p--; }
+            if ((bs & 1) == 0) {
+                d_len = i - d_off;
+                return true;
+            }
+        }
+        i++;
+    }
+    return false;
+}
+
+// Build the `events` JSON array from the local cast file. Returns the raw
+// JSON array as a String (e.g. `[{"k":"o","d":"hi"}]`); empty on failure.
+// Sets `truncated` if any spec cap (per-event size, total bytes, event
+// count) was hit. Consecutive same-direction events are coalesced — spec
+// §3.4.3 recommends one event per direction-change.
+static String hub_build_events_(const String& cast_path,
+                                size_t budget_bytes,
+                                bool& truncated) {
     truncated = false;
-    if (!path.length() || cap_bytes == 0) return false;
-    File f = LittleFS.open(path, "r");
-    if (!f) return false;
-    size_t total = f.size();
-    size_t take  = total > cap_bytes ? cap_bytes : total;
-    out.reserve(take + 1);
-    uint8_t buf[512];
-    size_t left = take;
-    while (left) {
-        size_t n = f.read(buf, left > sizeof(buf) ? sizeof(buf) : left);
-        if (!n) break;
-        out.concat((const char*)buf, n);
-        left -= n;
+    if (!cast_path.length() || budget_bytes == 0) return String();
+    File f = LittleFS.open(cast_path, "r");
+    if (!f) return String();
+
+    String out;
+    out.reserve(budget_bytes < 2048 ? 1024 : (budget_bytes / 2));
+    out += '[';
+    size_t total_d   = 0;
+    size_t n_events  = 0;
+    bool   first_out = true;
+
+    // Pending coalesced event — only flushed on direction change, when the
+    // per-event byte cap is hit, or at end-of-file.
+    String pending;
+    char   pending_k   = 0;
+    size_t pending_len = 0;
+
+    auto flush_pending = [&]() {
+        if (!pending_len) return;
+        if (n_events >= kHubMaxEvents) {
+            truncated = true;
+            pending = String();
+            pending_len = 0;
+            pending_k = 0;
+            return;
+        }
+        if (!first_out) out += ',';
+        out += "{\"k\":\"";
+        out += pending_k;
+        out += "\",\"d\":\"";
+        out += pending;
+        out += "\"}";
+        first_out = false;
+        n_events++;
+        pending = String();
+        pending_len = 0;
+        pending_k = 0;
+    };
+
+    char buf[2048];
+    bool first_line = true;
+    while (f.available()) {
+        size_t off = 0;
+        while (off + 1 < sizeof(buf) && f.available()) {
+            int c = f.read();
+            if (c < 0) break;
+            if (c == '\n') break;
+            buf[off++] = (char)c;
+        }
+        buf[off] = 0;
+        if (first_line) { first_line = false; continue; }   // skip header
+        if (off == 0) continue;
+
+        char   k;
+        size_t d_off, d_len;
+        if (!hub_parse_cast_line_(buf, off, k, d_off, d_len)) continue;
+        if (d_len == 0) continue;
+
+        if (total_d + d_len > budget_bytes) { truncated = true; break; }
+
+        if (pending_k && pending_k != k) flush_pending();
+        if (pending_len + d_len > kHubMaxEventBytes) flush_pending();
+
+        if (!pending_k) pending_k = k;
+        pending.concat(&buf[d_off], d_len);
+        pending_len += d_len;
+        total_d     += d_len;
     }
+    flush_pending();
     f.close();
-    if (take < total) {
-        // Walk back to last \n so we don't ship a half-event.
-        int nl = out.lastIndexOf('\n');
-        if (nl > 0) out.remove((unsigned)nl + 1);
-        truncated = true;
-    }
-    return out.length() > 0;
+    out += ']';
+    return out;
 }
 
 bool intel_report_hub(AttackEntry& e) {
@@ -563,48 +666,57 @@ bool intel_report_hub(AttackEntry& e) {
     if (e.reported_abuseipdb) rt.add("abuseipdb");
     if (e.reported_otx)       rt.add("otx");
 
-    // attack.session — optional but recommended; carries the asciicast.
+    // attack.session — optional but recommended; carries the i/o transcript.
     JsonObject ses = at["session"].to<JsonObject>();
     ses["commands"] = e.commands;
+    // Spec §3.4.3: hub defaults the asciicast it reconstructs to 80×24 if
+    // `term` is absent. Both honeypots run an 80×24 PTY today, so emit it
+    // explicitly so the hub doesn't have to guess.
+    JsonObject term = ses["term"].to<JsonObject>();
+    term["cols"] = 80;
+    term["rows"] = 24;
 
     if (e.cast_path.length()) {
-        // The cast_v2 field is the largest contributor to heap pressure.
-        // Building the JSON body keeps the cast in RAM (once inside the
-        // JsonDocument pool, once again inside the serialised body String),
-        // and mbedTLS needs another ~40 KiB on top for record buffers when
-        // the hub URL is HTTPS. Plain HTTP is much cheaper.
+        // Spec §3.4.3 replaces the v0 inline `cast_v2` asciicast with a
+        // structured `events` array — `{k:'i'|'o', d:'<bytes>'}` per
+        // direction-change. The hub reconstructs the asciicast with
+        // synthetic timings (§3.4.3.1), so the firmware no longer has to
+        // JSON-escape ~50 KiB of byte-level events through a tight heap.
         //
-        // Rather than skip the cast entirely when free heap is tight (which
-        // is the common case on the C3 / TQT-Pro with the web dashboard
-        // running), we shrink the cap dynamically to what actually fits.
+        // We still keep two live copies of the events string in RAM (the
+        // raw JSON inside the events_doc String, then again inside the
+        // serialised body String), so we shrink the cap dynamically when
+        // free heap is low.
         bool tls_url = cfg.hub_url.startsWith("https://");
         size_t tls_overhead = tls_url ? 50 * 1024 : 8 * 1024;
         size_t cushion      = 16 * 1024;
         size_t free_now     = ESP.getFreeHeap();
         size_t budget       = 0;
         if (free_now > tls_overhead + cushion) {
-            // Two live copies of the cast (JsonDocument + serialised body).
             budget = (free_now - tls_overhead - cushion) / 2;
         }
-        size_t cap = (budget < kHubCastMaxBytes) ? budget : kHubCastMaxBytes;
-        // Below ~4 KiB the cast is essentially worthless; submit metadata
-        // only and mark it truncated so the hub UI can show the gap.
-        if (cap < 4 * 1024) {
-            Serial.printf("[hub] heap tight (free=%u, tls=%s) — submitting without cast_v2\n",
+        size_t cap = (budget < kHubEventsMaxBytes) ? budget : kHubEventsMaxBytes;
+        // Below ~2 KiB an events array is essentially worthless; submit
+        // metadata only and mark it truncated so the hub UI shows the gap.
+        if (cap < 2 * 1024) {
+            Serial.printf("[hub] heap tight (free=%u, tls=%s) — submitting without events\n",
                           (unsigned)free_now, tls_url ? "yes" : "no");
             ses["cast_truncated"] = true;
         } else {
-            if (cap < kHubCastMaxBytes) {
-                Serial.printf("[hub] heap=%u — capping cast at %u B (max %u)\n",
+            if (cap < kHubEventsMaxBytes) {
+                Serial.printf("[hub] heap=%u — capping events at %u B (max %u)\n",
                               (unsigned)free_now, (unsigned)cap,
-                              (unsigned)kHubCastMaxBytes);
+                              (unsigned)kHubEventsMaxBytes);
             }
-            String cast;
             bool truncated = false;
-            if (hub_load_cast_(e.cast_path, cast, truncated, cap)) {
-                ses["cast_v2"]        = cast;
-                ses["cast_truncated"] = truncated;
+            String events_json = hub_build_events_(e.cast_path, cap, truncated);
+            if (events_json.length() > 2) {     // not just "[]"
+                // serialized() embeds the raw JSON verbatim — without this
+                // ArduinoJson would re-escape every quote and backslash,
+                // doubling the payload and corrupting the data.
+                ses["events"] = serialized(events_json);
             }
+            ses["cast_truncated"] = truncated;
         }
     }
 

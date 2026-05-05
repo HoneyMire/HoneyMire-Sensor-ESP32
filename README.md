@@ -131,8 +131,8 @@ need to authenticate.
 
 The HTTP server (AsyncWebServer + handlers + listening socket) costs roughly
 30–50 KiB of internal heap. On the C3 / TQT-Pro that's significant — enough,
-for example, to let the Hub reporter ship a full asciicast inside a single
-TLS request. You can turn the web dashboard off:
+for example, to let the Hub reporter ship a longer events transcript inside
+a single TLS request. You can turn the web dashboard off:
 
 * **Config page** → *Dashboard auth* section → uncheck *Web dashboard enabled*.
 * **Serial menu** → key `w`.
@@ -162,11 +162,13 @@ never blocked. Each captured attack triggers:
    their own dashboard. Each attack is POSTed once (idempotent on
    `(token, attack.id)`) to `<hub_url>/api/v1/ingest` as a single JSON
    document containing the full session metadata, geo, classification,
-   pubkeys and the asciicast itself (capped per board: 50 KiB on C3,
-   100 KiB on T-QT Pro, 200 KiB on N16R8). Configure *Hub URL* and
-   *Hub token* in *Config*. Unlike AbuseIPDB/OTX, the Hub **does**
-   receive LAN attacks (so you can validate your setup). Token format
-   is `hop_` + 32 base64url chars; see
+   pubkeys and a structured i/o transcript (`session.events[]`) — the
+   hub reconstructs the asciicast on its side, so the firmware ships
+   only the bytes that flowed in each direction (capped per board:
+   32 KiB on C3, 64 KiB on T-QT Pro, 96 KiB on N16R8). Configure
+   *Hub URL* and *Hub token* in *Config*. Unlike AbuseIPDB/OTX, the
+   Hub **does** receive LAN attacks (so you can validate your setup).
+   Token format is `hop_` + 32 base64url chars; see
    [`docs/INGEST_PROTOCOL.md`](https://github.com/KaSt/HoneyOpusHUB/blob/main/docs/INGEST_PROTOCOL.md)
    in the HoneyOpusHUB repo for the wire contract.
 
