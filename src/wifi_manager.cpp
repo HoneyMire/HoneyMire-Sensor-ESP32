@@ -191,6 +191,7 @@ void wifi_try_sta() {
     s_mode = NetMode::ConnectingSTA;
     s_attempts++;
     s_last_attempt = millis();
+    s_next_retry_ms = 0;   // a fresh attempt: invalidate any pending backoff
     Serial.printf("[wifi] connecting to %s (attempt %u)\n",
                   cfg.wifi_ssid.c_str(), (unsigned)s_attempts);
     g_display.showStatus("WiFi...", cfg.wifi_ssid);
@@ -250,37 +251,55 @@ void wifi_loop() {
             s_last_healthy = millis();
             s_last_probe = millis();
             s_probe_fails = 0;
+            s_next_retry_ms = 0;
             Serial.printf("[wifi] STA connected ip=%s\n", WiFi.localIP().toString().c_str());
             g_display.showStatus("Online", g_config.get().wifi_ssid, WiFi.localIP().toString());
             g_display.wakeFromButton();
-        } else if (s_attempts == 0) {
-            // No begin() fired yet (we landed here via the event path).
-            // Honor the backoff window before retrying.
-            if (millis() >= s_next_retry_ms) wifi_try_sta();
-        } else if (millis() - s_last_attempt > kAttemptWaitMs) {
-            // Attempt timed out. Decide whether to keep trying or bail
-            // to AP fallback, using the last observed reason as a hint.
-            const uint8_t reason  = s_last_disc_reason;
-            const bool    perm    = reason_is_permanent_(reason);
-            const uint8_t cap     = perm ? kStaAttemptsPermanent : kStaAttemptsTransient;
-            if (s_attempts >= cap) {
-                Serial.printf("[wifi] giving up STA after %u attempts (%s reason=%u %s) — fallback AP\n",
-                              (unsigned)s_attempts, perm ? "permanent" : "transient",
-                              (unsigned)reason, disc_reason_label_(reason));
-                start_ap_();
-            } else {
-                uint32_t wait = backoff_for_(s_attempts);
-                if (wait > kBackoffMaxMs) wait = kBackoffMaxMs;
-                s_next_retry_ms = millis() + wait;
-                Serial.printf("[wifi] attempt %u failed, backoff %ums (reason=%u %s)\n",
-                              (unsigned)s_attempts, (unsigned)wait,
-                              (unsigned)reason, disc_reason_label_(reason));
-                if (millis() >= s_next_retry_ms) wifi_try_sta();
+        } else {
+            // FSM priority: backoff first, then "have we ever called
+            // begin?", then attempt-timeout decision. The earlier
+            // version had these checks ordered such that the
+            // "millis() - s_last_attempt > kAttemptWaitMs" branch was
+            // re-entered every loop pass once the first attempt timed
+            // out — printing "attempt 1 failed" on every iteration and
+            // never advancing s_attempts because the bail-or-backoff
+            // path didn't fire wifi_try_sta() on backoff expiry. This
+            // restructured chain runs each path exactly once per state
+            // transition.
+            const uint32_t now = millis();
+            if (s_next_retry_ms != 0) {
+                // A backoff window is active. Either still waiting,
+                // or it just expired — in which case fire the next
+                // begin() and clear the gate. Either way, we don't
+                // fall through to the timeout-decision branch.
+                if (now >= s_next_retry_ms) {
+                    s_next_retry_ms = 0;
+                    wifi_try_sta();
+                }
+            } else if (s_attempts == 0) {
+                // No begin() fired yet (e.g. landed here via event path).
+                wifi_try_sta();
+            } else if (now - s_last_attempt > kAttemptWaitMs) {
+                // Current attempt timed out. Decide bail vs backoff.
+                const uint8_t reason  = s_last_disc_reason;
+                const bool    perm    = reason_is_permanent_(reason);
+                const uint8_t cap     = perm ? kStaAttemptsPermanent : kStaAttemptsTransient;
+                if (s_attempts >= cap) {
+                    Serial.printf("[wifi] giving up STA after %u attempts (%s reason=%u %s) — fallback AP\n",
+                                  (unsigned)s_attempts, perm ? "permanent" : "transient",
+                                  (unsigned)reason, disc_reason_label_(reason));
+                    start_ap_();
+                } else {
+                    uint32_t wait = backoff_for_(s_attempts);
+                    if (wait > kBackoffMaxMs) wait = kBackoffMaxMs;
+                    s_next_retry_ms = now + wait;
+                    Serial.printf("[wifi] attempt %u failed, backoff %ums (reason=%u %s)\n",
+                                  (unsigned)s_attempts, (unsigned)wait,
+                                  (unsigned)reason, disc_reason_label_(reason));
+                }
             }
-        } else if (s_next_retry_ms != 0 && millis() >= s_next_retry_ms &&
-                   millis() - s_last_attempt > kAttemptWaitMs) {
-            // Backoff elapsed and last begin() has had its chance.
-            wifi_try_sta();
+            // else: attempt still in flight (within kAttemptWaitMs of
+            // s_last_attempt). Just wait.
         }
     } else if (s_mode == NetMode::OnlineSTA) {
         if (status != WL_CONNECTED) {
