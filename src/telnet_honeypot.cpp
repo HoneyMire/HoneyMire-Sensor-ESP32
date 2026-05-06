@@ -39,9 +39,22 @@ static volatile uint8_t s_active = 0;               // updated on connect/discon
 // — that path was a known WDT trigger (see ESP32 stability review H2).
 // Routing close requests through the worker keeps loopTask boring.
 struct TnFinalizeJob {
-    enum Kind : uint8_t { K_FINALIZE, K_CLOSE };
+    // K_FINALIZE: clean tn_on_disconnect path. Worker runs forensics
+    //   AND deletes the TnSession.
+    // K_CLOSE:    reaper's force-close of a stuck client. Worker
+    //   issues close(true) on the AsyncClient.
+    // K_STUCK_FINALIZE: reaper detected a session whose onDisconnect
+    //   never fired (typically because AsyncTCP/lwIP wedged when WiFi
+    //   went into NOT_AUTHED). Worker runs forensics and decrements
+    //   the active slot count, but DOES NOT delete the TnSession —
+    //   AsyncTCP may still hold its void* arg. tn_on_disconnect's
+    //   idempotent guard (s->finalized) protects a late callback. The
+    //   session struct leaks (~hundreds of bytes), but the cast FD is
+    //   freed and the slot opens up. Far better than the old escalate-
+    //   to-reboot path. See ESP32 stability review H1/H2 follow-up.
+    enum Kind : uint8_t { K_FINALIZE, K_CLOSE, K_STUCK_FINALIZE };
     Kind kind;
-    void* sess;            // valid when kind == K_FINALIZE
+    void* sess;            // valid when kind == K_FINALIZE / K_STUCK_FINALIZE
     AsyncClient* client;   // valid when kind == K_CLOSE
 };
 static QueueHandle_t s_finalize_q = nullptr;
@@ -261,7 +274,23 @@ static void tn_worker_task(void*) {
             if (j.client) j.client->close(true);
             continue;
         }
-        // K_FINALIZE — run the slow forensics path off the AsyncTCP task.
+        if (j.kind == TnFinalizeJob::K_STUCK_FINALIZE) {
+            // Reaper-driven forensics for a session whose
+            // onDisconnect never fired. Run the same forensics path
+            // (close cast file, persist entry) but DO NOT delete the
+            // session struct — AsyncTCP may still hold its void* arg.
+            // tn_on_disconnect's s->finalized check makes a late
+            // callback a no-op.
+            TnSession* s = (TnSession*)j.sess;
+            if (!s) continue;
+            tn_finalize_inline(s);
+            // Don't `delete s;` — AsyncTCP may still hold its arg.
+            if (s_active > 0) s_active--;
+            g_gate.setTelnetActive(s_active);
+            continue;
+        }
+        // K_FINALIZE — clean disconnect path. Run the slow forensics
+        // off the AsyncTCP task and free the session.
         TnSession* s = (TnSession*)j.sess;
         if (!s) continue;
         tn_finalize_inline(s);
@@ -491,26 +520,31 @@ void telnet_begin() {
 }
 
 void telnet_reap() {
-    // Phase 1: 15 s after the last received byte, mark the session "stuck"
-    //          and ask AsyncTCP to close it. Idle-based — an actively
-    //          typing attacker keeps last_rx_ms fresh and is left alone.
-    //          The v3 lwIP-rcv-window patch makes close() from the main
-    //          loop safe again; before that, calling close() here could
-    //          panic the device.
-    // Phase 2: if 30 s after the close attempt the slot is still occupied,
-    //          we've truly leaked it. Better to spend a clean reboot than
-    //          to limp along with reduced capacity (and possibly all 3
-    //          slots gone — at which point Telnet is fully dead anyway).
+    // 15 s after the last received byte, mark the session stuck and
+    // immediately drive it through forensics + slot release. Idle-based
+    // — an actively typing attacker keeps last_rx_ms fresh and is left
+    // alone.
+    //
+    // The previous escalation chain (close → wait 30 s → reboot if
+    // still stuck) was the wrong shape: it depended on AsyncTCP's
+    // onDisconnect actually firing to run forensics, and when it
+    // didn't (typically because lwIP/AsyncTCP wedged after a WiFi
+    // NOT_AUTHED deauth) the cast file FD stayed open, the next
+    // /sessions quota pass failed to unlink it, and the device fell
+    // off into a reboot. Now the reaper queues the forensics
+    // directly to the worker as K_STUCK_FINALIZE — closes the cast,
+    // persists the entry, frees the slot — and AsyncTCP's eventual
+    // (or never) onDisconnect is harmless because the H1 idempotent
+    // guard makes it a no-op.
     constexpr uint32_t kTnIdleTimeoutMs  = 15000;
-    constexpr uint32_t kTnRebootAfterMs  = 30000;
     uint32_t now = millis();
 
     uint32_t log_vids[TN_MAX_CONCURRENT] = {0, 0, 0};
     size_t   log_n = 0;
     AsyncClient* close_victims[TN_MAX_CONCURRENT] = {nullptr, nullptr, nullptr};
     size_t   close_n = 0;
-    bool     reboot_needed = false;
-    uint32_t reboot_vid = 0;
+    TnSession* finalize_victims[TN_MAX_CONCURRENT] = {nullptr, nullptr, nullptr};
+    size_t   finalize_n = 0;
 
     portENTER_CRITICAL(&s_reg_mux);
     for (auto& slot : s_registry) {
@@ -521,14 +555,15 @@ void telnet_reap() {
             slot->stuck_at_ms    = now;
             log_vids[log_n++]    = slot->entry.id;
         }
-        if (!slot->close_attempted && slot->client) {
-            slot->close_attempted    = true;
-            close_victims[close_n++] = slot->client;
-        } else if (slot->close_attempted &&
-                   (now - slot->stuck_at_ms) > kTnRebootAfterMs) {
-            reboot_needed = true;
-            reboot_vid    = slot->entry.id;
-            break;
+        if (!slot->close_attempted) {
+            slot->close_attempted = true;
+            // Mark finalized + remove from registry NOW so a second
+            // reaper pass doesn't double-queue work for this slot.
+            // The H1 idempotent guard keeps tn_on_disconnect safe.
+            slot->finalized = true;
+            if (slot->client) close_victims[close_n++] = slot->client;
+            finalize_victims[finalize_n++] = slot;
+            slot = nullptr;   // release the registry slot for new sessions
         }
     }
     portEXIT_CRITICAL(&s_reg_mux);
@@ -536,13 +571,37 @@ void telnet_reap() {
     // Log once per stuck session — re-logging every 1 Hz pass floods Serial
     // and can re-introduce the HWCDC-TX-saturation deadlock we just fixed.
     for (size_t i = 0; i < log_n; ++i) {
-        Serial.printf("[telnet] reaper: session id=%u idle >%us, closing\n",
+        Serial.printf("[telnet] reaper: session id=%u idle >%us, finalizing\n",
                       (unsigned)log_vids[i], (unsigned)(kTnIdleTimeoutMs / 1000));
     }
-    // Best-effort close — done on the worker task, NOT here on loopTask.
-    // close(true) can block waiting for lwIP/AsyncTCP internal state and
-    // would otherwise trip the loopTask watchdog (ESP32 stability review
-    // H2). The worker is allowed to stall; loopTask is not.
+
+    // Drive forensics + slot release for each stuck session via the
+    // worker task. Off loopTask so a slow LFS close can't trip the
+    // watchdog (H2). The worker runs tn_finalize_inline (closes cast
+    // file → frees the FD that the quota enforcer was tripping on)
+    // and decrements s_active. It does NOT delete the TnSession,
+    // because AsyncTCP may still hold its arg pointer; H1's
+    // idempotent tn_on_disconnect makes a late callback safe.
+    for (size_t i = 0; i < finalize_n; ++i) {
+        if (!finalize_victims[i]) continue;
+        TnFinalizeJob jf{};
+        jf.kind   = TnFinalizeJob::K_STUCK_FINALIZE;
+        jf.sess   = finalize_victims[i];
+        jf.client = nullptr;
+        if (!s_finalize_q || xQueueSend(s_finalize_q, &jf, 0) != pdTRUE) {
+            // Queue full — run forensics inline as a last resort. The
+            // small risk of a watchdog tick is preferable to leaving
+            // the cast FD open and the slot occupied.
+            tn_finalize_inline(finalize_victims[i]);
+            if (s_active > 0) s_active--;
+            g_gate.setTelnetActive(s_active);
+        }
+    }
+    // Best-effort close — also queued to the worker, NOT here on
+    // loopTask. close(true) can block on lwIP/AsyncTCP internals
+    // (review H2). With forensics already queued above, even if
+    // close(true) wedges forever, file resources and the slot are
+    // already released.
     for (size_t i = 0; i < close_n; ++i) {
         if (!close_victims[i]) continue;
         TnFinalizeJob j{};
@@ -550,16 +609,15 @@ void telnet_reap() {
         j.sess   = nullptr;
         j.client = close_victims[i];
         if (!s_finalize_q || xQueueSend(s_finalize_q, &j, 0) != pdTRUE) {
-            // Queue full — fall back to inline close. Better to risk a
-            // single watchdog tick than to leak the slot indefinitely.
+            // Queue full — fall back to inline close.
             close_victims[i]->close(true);
         }
     }
-    if (reboot_needed) {
-        Serial.printf("[telnet] reaper: session id=%u still stuck after close, rebooting\n",
-                      (unsigned)reboot_vid);
-        restart::restart_with(restart::kReasonTelnetStuck);
-    }
+    // The old "reboot if still stuck after 30 s" escalation is gone.
+    // Forensics + slot release are now eager (queued above), so the
+    // device keeps running instead of bouncing every minute when
+    // AsyncTCP/lwIP wedges. The kReasonTelnetStuck restart bucket is
+    // retained in restart_reason.h for any future use.
 }
 
 } // namespace honeyopus
