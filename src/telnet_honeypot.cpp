@@ -195,6 +195,12 @@ static void tn_handle_complete_line(TnSession* s) {
             s->shell.begin(s->pending_user.length() ? s->pending_user : String(profile.fake_user),
                            profile.hostname);
             s->shell.setPersona(s->persona);
+            // Telnet drives the shell from inside an AsyncTCP onData
+            // callback; a real delay() in `sleep`/payload-realism would
+            // block the network task for up to 3 s. Virtual sleep
+            // returns immediately while preserving the forensic event
+            // log entry. SSH leaves this off — it runs on its own task.
+            s->shell.setVirtualSleep(true);
             s->shell.setSessionInfo(s->entry.id, s->entry.ip, s->entry.port,
                                     "telnet", s->entry.cast_path + ".events.jsonl");
             tn_send(s, s->shell.motd());
@@ -230,10 +236,12 @@ static void tn_finalize_inline(TnSession* s) {
     s->cast.close();
     g_attack_log.append(s->entry);
     intel_enqueue(s->entry.id);
-    {
-        auto& c = g_config.get();
-        storage_enforce_session_quota(c.max_sessions, (size_t)c.max_session_dir_kb * 1024);
-    }
+    // Quota enforcement (formerly here) moved to the AttackLog
+    // persister's periodic loop — see ESP32 stability review ST2.
+    // Running it on every finalize made each session pay for an
+    // /sessions enumeration, sort, and stat() pass; under bursty
+    // attacks that latency stacked up on the worker task and made
+    // finalize times unbounded.
     Serial.printf("[telnet] session done id=%u ip=%s user=%s pass=%s authed=%d cmds=%u persona=%s\n",
                   (unsigned)s->entry.id, s->entry.ip.c_str(),
                   s->entry.user.c_str(), s->entry.pass.c_str(),

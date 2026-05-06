@@ -480,10 +480,8 @@ static void handle_session(ssh_session sess) {
     }
     g_attack_log.append(entry);
     intel_enqueue(entry.id);
-    {
-        auto& c = g_config.get();
-        storage_enforce_session_quota(c.max_sessions, (size_t)c.max_session_dir_kb * 1024);
-    }
+    // Quota enforcement moved to the AttackLog persister's periodic
+    // loop — ESP32 stability review ST2.
 
     Serial.printf("[ssh] session done id=%u ip=%s user=%s pass=%s authed=%d cmds=%u%s\n",
                   (unsigned)entry.id, entry.ip.c_str(),
@@ -535,11 +533,27 @@ static void ssh_listener_task(void*) {
     Serial.printf("[ssh] listening on %s:%d\n",
                   WiFi.localIP().toString().c_str(), port);
 
+    // Underlying listen socket. select()ing on it with a 1 s timeout
+    // lets the loop notice WiFi loss / config toggles even when no
+    // attacker is connecting — without that, ssh_bind_accept blocks
+    // indefinitely and the listener can outlive the WiFi connection
+    // it was bound to. See ESP32 stability review S2.
+    const int listen_fd = ssh_bind_get_fd(sshbind);
+
     for (;;) {
         if (!g_config.get().ssh_enabled || WiFi.status() != WL_CONNECTED) {
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(listen_fd, &rfds);
+        struct timeval tv = {};
+        tv.tv_sec  = 1;
+        tv.tv_usec = 0;
+        int sel = select(listen_fd + 1, &rfds, nullptr, nullptr, &tv);
+        if (sel <= 0) continue;  // timeout or error: re-check gates
+
         ssh_session sess = ssh_new();
         if (!sess) { vTaskDelay(pdMS_TO_TICKS(500)); continue; }
         if (ssh_bind_accept(sshbind, sess) != SSH_OK) {

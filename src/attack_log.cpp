@@ -302,6 +302,13 @@ void AttackLog::persistTaskRun_() {
     // ever finalized), so a leaked session can never have its id reused
     // after reboot — see ESP32 stability review H7.
     uint32_t last_persisted_next_id = 0;
+    // Last time storage_enforce_session_quota() ran from this task.
+    // Sessions used to enforce the quota inline at finalize time, which
+    // made every session pay for an /sessions enumeration + sort +
+    // stat. Now we run it periodically from this low-priority task —
+    // see ESP32 stability review ST2.
+    uint32_t last_quota_ms = 0;
+    static const uint32_t kQuotaIntervalMs = 2u * 60u * 1000u;
     for (;;) {
         uint32_t id = 0;
         // Wake on a queued attack OR every 30 s, whichever comes first.
@@ -349,6 +356,15 @@ void AttackLog::persistTaskRun_() {
                 p.end();
                 last_persisted_next_id = cur_next_id;
             }
+        }
+
+        // Periodic session-quota enforcement (was inline at finalize).
+        uint32_t now = millis();
+        if (last_quota_ms == 0 || now - last_quota_ms >= kQuotaIntervalMs) {
+            last_quota_ms = now;
+            const auto& c = g_config.get();
+            storage_enforce_session_quota(c.max_sessions,
+                                          (size_t)c.max_session_dir_kb * 1024);
         }
     }
 }

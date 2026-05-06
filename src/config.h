@@ -42,7 +42,15 @@ struct Config {
     String fake_user     = "root";
     uint8_t login_attempts_before_accept = 3; // accept on the Nth attempt to look weak
     bool   telnet_enabled = true;
-    bool   ssh_enabled    = true;
+    // SSH default-on for boards that have heap headroom (S3 + PSRAM);
+    // default-off for ESP32-C3 — libssh's residual heap (~50 KB lost
+    // per session even on clean disconnect) makes sustained exposure
+    // marginal there. Operator can flip via /config or the serial
+    // menu without a re-flash. See ESP32 stability review S1.
+#ifndef HONEYOPUS_DEFAULT_SSH_ENABLED
+#define HONEYOPUS_DEFAULT_SSH_ENABLED 1
+#endif
+    bool   ssh_enabled    = (HONEYOPUS_DEFAULT_SSH_ENABLED != 0);
 
     // Dashboard auth
     bool   dashboard_auth_enabled = false;

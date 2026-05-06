@@ -2292,7 +2292,11 @@ String FakeShell::cmdSleep_(Cmd& c) {
     logEvent_("sleep", body);
     if (ms < 0) ms = 0;
     if ((uint32_t)ms > MAX_SLEEP_MS) ms = MAX_SLEEP_MS;
-    delay(ms);
+    // virtual_sleep skips the actual stall — telnet runs the shell from
+    // an AsyncTCP callback where a 3 s delay() blocks the entire
+    // network task. The forensic intent (the attacker called sleep) is
+    // already captured in logEvent_ above. See ESP32 stability review H5.
+    if (!virtual_sleep_) delay(ms);
     return "";
 }
 
@@ -2496,8 +2500,9 @@ String FakeShell::cmdExecute_(Cmd& c) {
         procs_.push_back(p);
     }
 
-    // realistic small delay
-    delay(min((uint32_t)1500, MAX_SLEEP_MS));
+    // realistic small delay — skipped when running from a network
+    // callback (telnet); SSH runs on its own task and keeps it.
+    if (!virtual_sleep_) delay(min((uint32_t)1500, MAX_SLEEP_MS));
     return "";
 }
 

@@ -47,6 +47,14 @@ public:
     void begin(const String& user, const String& host);
     void setPersona(TelnetPersona p);  // Set the server persona
 
+    // When virtual_sleep is true, `sleep` and the post-payload realism
+    // delay return immediately instead of calling delay(). The telnet
+    // runner sets this so attacker shell commands don't block the
+    // AsyncTCP callback for up to 3 s — see ESP32 stability review H5.
+    // SSH runs on its own task and keeps the realistic delay
+    // (virtual_sleep stays false).
+    void setVirtualSleep(bool v) { virtual_sleep_ = v; }
+
     // Optional session metadata; safe to call any time before execute(). When
     // events_path is non-empty, structured per-command events are appended as
     // JSONL to that LittleFS file.
@@ -194,6 +202,7 @@ private:
     uint16_t commands_ = 0;
     bool     exit_ = false;
     bool     cap_hit_ = false;
+    bool     virtual_sleep_ = false;   // see setVirtualSleep()
     uint32_t first_cmd_ms_ = 0;
     uint32_t last_cmd_ms_ = 0;
 
