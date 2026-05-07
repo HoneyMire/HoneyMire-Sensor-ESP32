@@ -40,6 +40,29 @@ static bool heap_ok_for_tls_(const char* tag) {
     return true;
 }
 
+// Sanitize an attacker-controlled String for safe JSON serialization.
+// Replaces every byte that is not safe-printable-ASCII (< 0x20 or
+// >= 0x80) with '?'. Used on user/pass/command_summary/etc. before
+// they're assigned to a JsonDocument — ArduinoJson serialises
+// strings byte-for-byte, so a raw 0x80-0xFF byte slips through and
+// the hub's Postgres jsonb input parser then rejects the request
+// with "invalid byte sequence for encoding UTF8". The asciinema
+// cast file has its own per-byte escape (Asciinema::writeEscaped_),
+// but JSON-document fields don't go through that path.
+//
+// The "?" replacement is deliberate: visible to the operator on the
+// hub dashboard, makes it obvious that the original byte was
+// non-ASCII, doesn't pretend to be valid Unicode.
+static String json_safe_(const String& s) {
+    String out;
+    out.reserve(s.length());
+    for (size_t i = 0; i < s.length(); ++i) {
+        unsigned char c = (unsigned char)s[i];
+        out += (c < 0x20 || c >= 0x80) ? '?' : (char)c;
+    }
+    return out;
+}
+
 // DNS-warmup gate. The arduino-esp32 / lwIP DNS resolver sometimes
 // returns SERVFAIL for the first few seconds after STA association
 // even on healthy networks (especially noticeable right after a
@@ -401,7 +424,7 @@ bool intel_report_otx(AttackEntry& e) {
     i["title"] = title;
 
     String desc = "Brute-force capture. user='";
-    desc += e.user; desc += "'";
+    desc += json_safe_(e.user); desc += "'";
     if (e.country_code.length()) { desc += " geo="; desc += e.country_code; }
     if (e.isp.length())          { desc += " isp="; desc += e.isp; }
     // Attacker profile, in cautious wording. The classifier is heuristic and
@@ -701,8 +724,8 @@ bool intel_report_hub(AttackEntry& e) {
     src["port"] = e.port;
 
     JsonObject au = at["auth"].to<JsonObject>();
-    au["user"]          = e.user;
-    au["pass"]          = e.pass;
+    au["user"]          = json_safe_(e.user);
+    au["pass"]          = json_safe_(e.pass);
     au["authenticated"] = e.authenticated;
     au["attempts"]      = e.auth_attempts;
 
@@ -722,16 +745,16 @@ bool intel_report_hub(AttackEntry& e) {
                 int sp2 = (sp1 >= 0) ? line.indexOf(' ', sp1 + 1) : -1;
                 JsonObject o = pk.add<JsonObject>();
                 if (sp1 < 0) {
-                    o["type"]        = line;
+                    o["type"]        = json_safe_(line);
                     o["fingerprint"] = "";
                 } else if (sp2 < 0) {
-                    o["type"]        = line.substring(0, sp1);
-                    o["fingerprint"] = line.substring(sp1 + 1);
+                    o["type"]        = json_safe_(line.substring(0, sp1));
+                    o["fingerprint"] = json_safe_(line.substring(sp1 + 1));
                 } else {
-                    o["type"]        = line.substring(0, sp1);
-                    o["fingerprint"] = line.substring(sp1 + 1, sp2);
+                    o["type"]        = json_safe_(line.substring(0, sp1));
+                    o["fingerprint"] = json_safe_(line.substring(sp1 + 1, sp2));
                     String key = line.substring(sp2 + 1);
-                    if (key.length() && key.length() <= 800) o["key"] = key;
+                    if (key.length() && key.length() <= 800) o["key"] = json_safe_(key);
                 }
             }
             if (nl < 0) break;
@@ -973,7 +996,7 @@ static void intel_dshield_drain_() {
         o["src_ip"]        = e.ip;
         o["dst_port"]      = e.port;
         o["protocol"]      = e.protocol;
-        o["username"]      = e.user;
+        o["username"]      = json_safe_(e.user);
         o["authenticated"] = e.authenticated;
         o["attempts"]      = e.auth_attempts;
         o["commands"]      = e.commands;

@@ -902,22 +902,38 @@ static void send_cast(AsyncWebServerRequest* req) {
 static void send_sessions_page(AsyncWebServerRequest* req) {
     if (!authed(req)) return req->requestAuthentication();
     if (!web_heap_ok_(req, "/sessions")) return;
+    // Chunked rather than building one big body String — with 50+
+    // sessions the old slurp could OOM the same way /cast did before
+    // D-1. Each row is its own segment, freed as soon as it's flushed
+    // to TCP. See ESP32 stability review E2.
     auto names = storage_list_dir("/sessions");
-    String body;
-    body += FPSTR(PAGE_HEAD);
-    body += FPSTR(PAGE_NAV);
-    body += "<div class='card'><h3>Stored sessions ("; body += names.size(); body += ")</h3><ul>";
+    auto pg = std::make_shared<SegPage>();
+    pg->segs.emplace_back(FPSTR(PAGE_HEAD));
+    pg->segs.emplace_back(FPSTR(PAGE_NAV));
+    {
+        String hdr;
+        hdr.reserve(80);
+        hdr += "<div class='card'><h3>Stored sessions (";
+        hdr += names.size();
+        hdr += ")</h3><ul>";
+        pg->segs.emplace_back(std::move(hdr));
+    }
     for (auto& n : names) {
+        String row;
+        row.reserve(160);
         String full = String("/sessions/") + n;
         File f = LittleFS.open(full, "r");
         size_t sz = f ? f.size() : 0;
         if (f) f.close();
-        body += "<li><a href='/raw?path="; body += full; body += "'>"; body += n;
-        body += "</a> <span class='meta'>"; body += sz; body += " B</span></li>";
+        row += "<li><a href='/raw?path="; row += full; row += "'>"; row += n;
+        row += "</a> <span class='meta'>"; row += sz; row += " B</span></li>";
+        pg->segs.emplace_back(std::move(row));
     }
-    body += "</ul></div>";
-    body += FPSTR(PAGE_FOOT);
-    req->send(200, "text/html; charset=utf-8", body);
+    pg->segs.emplace_back(F("</ul></div>"));
+    pg->segs.emplace_back(FPSTR(PAGE_FOOT));
+    AsyncWebServerResponse* r =
+        req->beginChunkedResponse("text/html; charset=utf-8", make_seg_filler(pg));
+    req->send(r);
 }
 
 static void send_raw(AsyncWebServerRequest* req) {
@@ -941,15 +957,32 @@ static void send_raw(AsyncWebServerRequest* req) {
 
 static void api_attacks(AsyncWebServerRequest* req) {
     if (!authed(req)) return req->requestAuthentication();
-    auto v = g_attack_log.recent(100);
-    JsonDocument d;
-    JsonArray a = d.to<JsonArray>();
-    for (auto& e : v) {
-        JsonObject o = a.add<JsonObject>();
+    if (!web_heap_ok_(req, "/api/attacks")) return;
+    // Stream the JSON array entry-by-entry rather than building the
+    // full document + serialised body in one go. The old path made
+    // two heavyweight heap copies of the whole log (one inside the
+    // JsonDocument pool, one in the serialised String) — at 100
+    // entries × ~600 bytes that's ~120 KB peak, easily enough to
+    // OOM a heap-tight C3. ESP32 stability review E2.
+    auto pg = std::make_shared<SegPage>();
+    pg->segs.emplace_back(F("["));
+    bool first = true;
+    g_attack_log.forEachRecent(100, [&](const AttackEntry& e) {
+        JsonDocument d;
+        JsonObject o = d.to<JsonObject>();
         e.toJson(o);
-    }
-    String body; serializeJson(d, body);
-    req->send(200, "application/json", body);
+        String chunk;
+        chunk.reserve(700);
+        if (!first) chunk += ',';
+        first = false;
+        serializeJson(d, chunk);
+        pg->segs.emplace_back(std::move(chunk));
+        return true;
+    });
+    pg->segs.emplace_back(F("]"));
+    AsyncWebServerResponse* r =
+        req->beginChunkedResponse("application/json", make_seg_filler(pg));
+    req->send(r);
 }
 
 static void api_scan(AsyncWebServerRequest* req) {
@@ -985,6 +1018,72 @@ static void api_scan(AsyncWebServerRequest* req) {
     String body; serializeJson(d, body);
     WiFi.scanDelete();
     req->send(200, "application/json", body);
+}
+
+// /health.json — operator-facing diagnostic snapshot. Designed to be
+// curlable from monitoring scripts and human-friendly in a browser.
+// Surfaces:
+//   - heap (free / largest contiguous / min-since-boot)
+//   - wifi (mode, ip, online_uptime_s, last disconnect reason)
+//   - listeners (telnet/ssh/web)
+//   - attacker_gate counters (telnet_total/gated, ssh_total/gated, web_total)
+//   - attack-log size
+//   - restart history (last reason, total, per-reason counts)
+//
+// Built as a small JSON String — bounded by the field set, never
+// scales with attack count, so no chunked-response needed.
+static void api_health(AsyncWebServerRequest* req) {
+    if (!authed(req)) return req->requestAuthentication();
+    g_gate.incWeb();
+    String b;
+    b.reserve(640);
+    b += '{';
+    b += "\"uptime_s\":"; b += (uint32_t)(millis() / 1000);
+    b += ",\"heap\":{\"free\":"; b += (uint32_t)ESP.getFreeHeap();
+    b += ",\"largest\":";       b += (uint32_t)ESP.getMaxAllocHeap();
+    b += ",\"min_since_boot\":"; b += (uint32_t)ESP.getMinFreeHeap();
+    b += "}";
+
+    const char* mode = "?";
+    switch (wifi_mode()) {
+        case NetMode::Boot:          mode = "boot"; break;
+        case NetMode::ConnectingSTA: mode = "sta-conn"; break;
+        case NetMode::OnlineSTA:     mode = "sta"; break;
+        case NetMode::FallbackAP:    mode = "ap"; break;
+    }
+    b += ",\"wifi\":{\"mode\":\""; b += mode; b += "\"";
+    b += ",\"ip\":\""; b += wifi_ip_string(); b += "\"";
+    b += ",\"online_uptime_s\":"; b += (uint32_t)(wifi_online_uptime_ms() / 1000);
+    b += "}";
+
+    b += ",\"listeners\":{\"telnet\":";
+    b += g_config.get().telnet_enabled ? "true" : "false";
+    b += ",\"ssh\":";
+    b += (g_config.get().ssh_enabled && ssh_listener_running()) ? "true" : "false";
+    b += ",\"web\":";
+    b += g_config.get().web_enabled ? "true" : "false";
+    b += "}";
+
+    b += ",\"gate\":{";
+    b += "\"telnet_total\":";  b += g_gate.telnetTotal();
+    b += ",\"telnet_gated\":"; b += g_gate.telnetGated();
+    b += ",\"telnet_active\":"; b += g_gate.telnetActive();
+    b += ",\"ssh_total\":";    b += g_gate.sshTotal();
+    b += ",\"ssh_gated\":";    b += g_gate.sshGated();
+    b += ",\"web_total\":";    b += g_gate.webTotal();
+    b += "}";
+
+    b += ",\"attacks\":{\"persisted\":"; b += (uint32_t)g_attack_log.count();
+    b += "}";
+
+    b += ",\"restart\":{";
+    restart::summary_json(b);
+    b += "}";
+
+    b += '}';
+    AsyncWebServerResponse* r = req->beginResponse(200, "application/json", b);
+    r->addHeader("Cache-Control", "no-store");
+    req->send(r);
 }
 
 // -------- Captive portal: setup page --------
@@ -1090,6 +1189,7 @@ void web_begin() {
     s_server.on("/play",      HTTP_GET,  send_play_page);
     s_server.on("/api/attacks", HTTP_GET, api_attacks);
     s_server.on("/api/scan",  HTTP_GET,  api_scan);
+    s_server.on("/health.json", HTTP_GET, api_health);
 
     s_server.on("/portal",    HTTP_GET,  send_portal);
     s_server.on("/portal/save", HTTP_POST, portal_save);

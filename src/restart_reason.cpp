@@ -61,6 +61,41 @@ void log_on_boot() {
     p.end();
 }
 
+void summary_json(String& out) {
+    Preferences p;
+    if (!p.begin(kNs, true)) {
+        out += "\"last_reason\":null,\"total\":0,\"counts\":{}";
+        return;
+    }
+    String last = p.getString("last", "");
+    uint32_t at_uptime = p.getUInt("last_uptime", 0);
+    uint32_t total = p.getUInt("total", 0);
+    out += "\"last_reason\":";
+    if (last.length()) { out += '"'; out += last; out += '"'; }
+    else               { out += "null"; }
+    out += ",\"last_uptime_s\":";
+    out += at_uptime;
+    out += ",\"total\":";
+    out += total;
+    out += ",\"counts\":{";
+    static const char* kLabels[] = {
+        kReasonHeapLow, kReasonWifiOutage, kReasonTelnetStuck,
+        kReasonPortalSaved, kReasonOomNew, kReasonUserAction,
+    };
+    bool first = true;
+    for (const char* lbl : kLabels) {
+        char key[24];
+        snprintf(key, sizeof(key), "%s_n", lbl);
+        uint32_t n = p.getUInt(key, 0);
+        if (!n) continue;
+        if (!first) out += ',';
+        first = false;
+        out += '"'; out += lbl; out += "\":"; out += n;
+    }
+    out += '}';
+    p.end();
+}
+
 void breadcrumb(const char* tag) {
     s_bc_tag = tag;
     s_bc_canary = kBcCanary;

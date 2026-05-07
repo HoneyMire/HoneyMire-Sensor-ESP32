@@ -46,5 +46,21 @@ void breadcrumb(const char* tag);
 // any. Call once from setup(), right after log_on_boot().
 void breadcrumb_log_on_boot();
 
+// Append the persisted restart-reason summary to `out` as a JSON
+// object (no surrounding braces handled by caller; this writes the
+// fields in K/V form). Used by /health.json so operators can see
+// the device's history of self-heals from a browser.
+//
+// Shape:
+//   "restart": {
+//     "last_reason": "heap_low",
+//     "last_uptime_s": 91234,
+//     "total": 5,
+//     "counts": { "heap_low": 3, "wifi_outage": 2, ... }
+//   }
+//
+// `out` is appended to; caller writes the surrounding key + braces.
+void summary_json(String& out);
+
 } // namespace restart
 } // namespace honeyopus
