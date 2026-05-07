@@ -17,10 +17,13 @@ struct Entry {
 // abuseipdb, otx, dshield, plus maybe one or two NTP hosts). 8 slots
 // is plenty; on overflow we evict the entry whose positive TTL or
 // negative TTL is closest to expiry.
+//
+// arduino-esp32 6.7.0's public WiFi.hostByName takes only (host,
+// IPAddress&) — no timeout overload. The framework's internal
+// timeout (default 14 s) governs.
 constexpr size_t   kSlots             = 8;
 constexpr uint32_t kPositiveTtlMs     = 60UL * 60UL * 1000UL;  // 1 hour
 constexpr uint32_t kNegativeTtlMs     = 30UL * 1000UL;         // 30 s
-constexpr uint32_t kResolveTimeoutMs  = 5000;
 
 Entry s_slots[kSlots];
 
@@ -78,7 +81,7 @@ bool dns_cache_resolve(const char* host, IPAddress& out) {
     // result (positive or negative) means we don't re-call here for
     // kPositiveTtlMs / kNegativeTtlMs respectively.
     IPAddress ip;
-    bool ok = WiFi.hostByName(host, ip, kResolveTimeoutMs);
+    bool ok = WiFi.hostByName(host, ip);
     Entry* slot = claim_slot_(host);
     if (ok) {
         slot->ip = ip;
