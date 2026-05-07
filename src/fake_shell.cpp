@@ -1943,6 +1943,57 @@ static String parseDownloadUrl(const std::vector<String>& argv, String& outFile,
     return url;
 }
 
+// Quick IPv4/IPv6 literal check. We don't validate octet ranges —
+// just decide "is this a hostname or already an IP?". Real wget
+// short-circuits DNS when given a literal IP, and not mimicking that
+// is a strong fingerprint that the shell isn't real.
+static bool isIpLiteral_(const String& s) {
+    if (s.indexOf(':') >= 0) return true;  // any colon → assume IPv6
+    int dots = 0;
+    for (size_t i = 0; i < s.length(); ++i) {
+        char ch = s[i];
+        if (ch == '.') dots++;
+        else if (ch < '0' || ch > '9') return false;
+    }
+    return dots == 3;
+}
+
+// Stable-looking fake IP derived from a hostname hash. Used in the
+// wget "Resolving" line so each hostname always reports the same
+// IP across the session, instead of the previous hardcoded
+// 185.199.108.133 (GitHub Pages, an obvious tell). FNV-1a is enough
+// distribution for cosmetic purposes. Output is in the 185.x.x.x
+// space — looks routable, no collision with any specific
+// well-known site.
+static String hashedFakeIp_(const String& host) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < host.length(); ++i) {
+        h ^= (unsigned char)host[i];
+        h *= 16777619u;
+    }
+    char buf[20];
+    snprintf(buf, sizeof(buf), "185.%u.%u.%u",
+             (unsigned)((h >> 16) & 0xff),
+             (unsigned)((h >>  8) & 0xff),
+             (unsigned)((h      ) & 0xff));
+    return String(buf);
+}
+
+// Format a "--YYYY-MM-DD HH:MM:SS--" wget log prefix. Uses real
+// local time when NTP is synced; falls back to a frozen value
+// otherwise. The previous hardcoded "2023-09-04 09:14:21" is a
+// fingerprint when seen on a 2026 capture.
+static String wgetTimestampPrefix_() {
+    time_t now = time(nullptr);
+    if (now > 1700000000) {
+        struct tm tm; localtime_r(&now, &tm);
+        char buf[32];
+        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
+        return String(buf);
+    }
+    return String("2024-11-01 12:00:00");
+}
+
 String FakeShell::cmdWget_(Cmd& c) {
     String file; bool silent=false;
     String url = parseDownloadUrl(c.argv, file, silent);
@@ -1972,18 +2023,37 @@ String FakeShell::cmdWget_(Cmd& c) {
     logEvent_("download_url", body);
 
     if (silent) return "";
-    String r;
-    r += "--"; r += "2023-09-04 09:14:21--  "; r += url; r += "\n";
+
+    // Extract host from URL for the connect line. Strip <scheme>://
+    // and any /path or :port suffix.
     int slashslash = url.indexOf("//");
     String host = (slashslash>=0) ? url.substring(slashslash+2) : url;
     int sl = host.indexOf('/'); if (sl>0) host = host.substring(0,sl);
-    r += "Resolving "+host+" ("+host+")... 185.199.108.133\n";
-    r += "Connecting to "+host+" ("+host+")|185.199.108.133|:80... connected.\n";
+    // Strip optional :port for the resolve/connect lines (they show
+    // host without port; the actual connect line includes it
+    // separately).
+    String host_only = host;
+    int hostcolon = host_only.indexOf(':');
+    if (hostcolon > 0) host_only = host_only.substring(0, hostcolon);
+
+    String ts = wgetTimestampPrefix_();
+    String r;
+    r += "--"; r += ts; r += "--  "; r += url; r += "\n";
+    if (isIpLiteral_(host_only)) {
+        // Real wget given an IP URL skips DNS entirely — no
+        // "Resolving" line, and the connect line uses the bare IP
+        // without the |resolved-ip| pipe form.
+        r += "Connecting to "+host_only+":80... connected.\n";
+    } else {
+        String resolved = hashedFakeIp_(host_only);
+        r += "Resolving "+host_only+" ("+host_only+")... "+resolved+"\n";
+        r += "Connecting to "+host_only+" ("+host_only+")|"+resolved+"|:80... connected.\n";
+    }
     r += "HTTP request sent, awaiting response... 200 OK\n";
     r += "Length: "+String(vf?vf->size:8192)+" (8.0K) [application/octet-stream]\n";
     r += "Saving to: '"+basename_(abs)+"'\n\n";
     r += basename_(abs)+"     100%[===================>]   8.00K  --.-KB/s    in 0s\n\n";
-    r += "2023-09-04 09:14:21 (12.4 MB/s) - '"+basename_(abs)+"' saved ["+String(vf?vf->size:8192)+"/"+String(vf?vf->size:8192)+"]\n\n";
+    r += ts+" (12.4 MB/s) - '"+basename_(abs)+"' saved ["+String(vf?vf->size:8192)+"/"+String(vf?vf->size:8192)+"]\n\n";
     return r;
 }
 
