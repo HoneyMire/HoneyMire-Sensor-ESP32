@@ -45,6 +45,31 @@ bool Asciinema::begin(const String& path,
 
 void Asciinema::writeEscaped_(const char* data, size_t len) {
     // Emit JSON string body with escapes per RFC 8259 — caller wraps in quotes.
+    //
+    // Attackers send arbitrary bytes through the fake shell — most
+    // dramatically `echo -ne "\x7f\x45\x4c\x46..."` to write ELF
+    // headers, or `cat /proc/self/cmdline` for NUL-delimited binary.
+    // We escape EVERY non-printable-ASCII byte (anything < 0x20 OR
+    // >= 0x80) as \u00xx, even though the JSON spec would let
+    // 0x80-0xFF pass verbatim. Reasons:
+    //
+    //   - JSON requires UTF-8. Raw 0x80-0xFF bytes from an attacker's
+    //     binary blob are routinely NOT valid UTF-8, and the hub's
+    //     Postgres jsonb input parser rejects the request with
+    //     "invalid byte sequence for encoding UTF8" before any of
+    //     our DB code runs.
+    //   - The cast file is the source of truth for both the on-device
+    //     /play page and the events array shipped to the hub. Keeping
+    //     it strictly ASCII guarantees both consumers see well-formed
+    //     content regardless of attacker input.
+    //   - The asciinema-player renders each \u00xx as a single
+    //     character, which is what a real terminal would have shown
+    //     (garbage glyphs for binary bytes) — forensically correct.
+    //
+    // The trade-off: a real attacker typing actual non-ASCII text
+    // (e.g., a Cyrillic command) gets each UTF-8 byte rendered as a
+    // separate character on playback. Those attackers are vanishingly
+    // rare in honeypot traffic; binary payload spew is the common case.
     for (size_t i = 0; i < len; ++i) {
         unsigned char c = (unsigned char)data[i];
         switch (c) {
@@ -56,7 +81,7 @@ void Asciinema::writeEscaped_(const char* data, size_t len) {
             case '\r': f_.write('\\'); f_.write('r'); break;
             case '\t': f_.write('\\'); f_.write('t'); break;
             default:
-                if (c < 0x20) {
+                if (c < 0x20 || c >= 0x80) {
                     char buf[8];
                     snprintf(buf, sizeof(buf), "\\u%04x", c);
                     f_.print(buf);
