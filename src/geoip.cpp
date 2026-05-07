@@ -1,6 +1,7 @@
 #include "geoip.h"
 #include "config.h"
 #include "wifi_manager.h"   // wifi_online_uptime_ms — DNS warmup gate
+#include "dns_cache.h"      // pre-resolve + cache to suppress framework [E] DNS log
 
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -129,6 +130,23 @@ bool geoip_lookup(AttackEntry& e) {
             Serial.printf("[geoip] skip — STA online %ums (DNS warmup, need %ums)\n",
                           (unsigned)up, (unsigned)kGeoDnsWarmupMs);
             return false;
+        }
+    }
+
+    // DNS gate. Pre-resolve via the application cache so steady-state
+    // resolver flakiness doesn't repeatedly emit
+    //   [E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for ip-api.com
+    // After a successful resolve the result is cached for an hour;
+    // after a failed one, retries are suppressed for 30 s.
+    {
+        String host;
+        if (dns_cache_extract_host(url, host)) {
+            IPAddress ip;
+            if (!dns_cache_resolve(host.c_str(), ip)) {
+                Serial.printf("[geoip] skip — dns negative-cached for %s\n",
+                              host.c_str());
+                return false;
+            }
         }
     }
 

@@ -3,6 +3,7 @@
 #include "geoip.h"
 #include "storage.h"        // fs_exists_silent — silent cast-file probes
 #include "wifi_manager.h"   // wifi_online_uptime_ms — DNS warmup gate
+#include "dns_cache.h"      // pre-resolve + cache to suppress framework [E] DNS log
 
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -60,6 +61,29 @@ static bool dns_warm_for_tls_(const char* tag) {
     if (up < kDnsWarmupMs) {
         Serial.printf("[%s] skip — STA online %ums (DNS warmup, need %ums)\n",
                       tag, (unsigned)up, (unsigned)kDnsWarmupMs);
+        return false;
+    }
+    return true;
+}
+
+// Pre-resolve the URL's hostname via the application-level DNS cache.
+// Returns true on hit (cached or fresh successful resolution); on
+// success, lwIP's resolver cache is hot, so HTTPClient's internal
+// hostByName won't re-trigger the framework [E] log. Returns false
+// silently when the cache says the host is in a failure window — we
+// don't even attempt the request, no [E] log fires for the rest of
+// the negative-TTL window. See src/dns_cache.{h,cpp}.
+static bool dns_ok_for_url_(const String& url, const char* tag) {
+    String host;
+    if (!dns_cache_extract_host(url, host)) {
+        // Unparseable URL — let HTTPClient handle it; this gate isn't
+        // meant to be a URL validator.
+        return true;
+    }
+    IPAddress ip;
+    if (!dns_cache_resolve(host.c_str(), ip)) {
+        Serial.printf("[%s] skip — dns negative-cached for %s\n",
+                      tag, host.c_str());
         return false;
     }
     return true;
@@ -162,6 +186,7 @@ bool intel_report_abuseipdb(AttackEntry& e) {
         return false;
     }
     if (!dns_warm_for_tls_("abuseipdb")) return false;
+    if (!dns_ok_for_url_(String("https://api.abuseipdb.com/api/v2/report"), "abuseipdb")) return false;
     if (!heap_ok_for_tls_("abuseipdb")) return false;
 
     WiFiClientSecure cs;
@@ -338,6 +363,7 @@ bool intel_report_otx(AttackEntry& e) {
         return false;
     }
     if (!dns_warm_for_tls_("otx")) return false;
+    if (!dns_ok_for_url_(String("https://otx.alienvault.com/api/v1/pulses/create"), "otx")) return false;
     if (!heap_ok_for_tls_("otx")) return false;
 
     if (!s_otx_mtx) s_otx_mtx = xSemaphoreCreateMutex();
@@ -606,6 +632,7 @@ bool intel_report_hub(AttackEntry& e) {
     // Per spec §12.6: hub does NOT suppress LAN attacks.
 
     if (!dns_warm_for_tls_("hub")) return false;
+    if (!dns_ok_for_url_(cfg.hub_url, "hub")) return false;
     if (!heap_ok_for_tls_("hub")) return false;
 
     // Catch the most common misconfiguration: pointing the ESP at
@@ -898,6 +925,7 @@ static void intel_dshield_drain_() {
     if (s_dshield_pending.empty()) return;
     if (millis() < s_dshield_next_ms) return;
     if (!dns_warm_for_tls_("dshield")) return;
+    if (!dns_ok_for_url_(String("https://dshield.org/api/handler/submit/"), "dshield")) return;
     if (!heap_ok_for_tls_("dshield")) return;
 
     JsonDocument d;
