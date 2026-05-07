@@ -881,27 +881,16 @@ static void send_cast(AsyncWebServerRequest* req) {
     if (!g_attack_log.getById(id, e) || !e.cast_path.length() || !LittleFS.exists(e.cast_path)) {
         req->send(404, "text/plain", "not found"); return;
     }
-    File f = LittleFS.open(e.cast_path, "r");
-    if (!f) { req->send(500, "text/plain", "open failed"); return; }
-    size_t sz = f.size();
-    // Cap to keep heap safe; casts are tiny by design.
-    static const size_t CAST_MAX = 512 * 1024;
-    if (sz > CAST_MAX) sz = CAST_MAX;
-    String body;
-    body.reserve(sz + 1);
-    {
-        uint8_t buf[512];
-        size_t left = sz;
-        while (left) {
-            size_t n = f.read(buf, left > sizeof(buf) ? sizeof(buf) : left);
-            if (!n) break;
-            body.concat((const char*)buf, n);
-            left -= n;
-        }
-    }
-    f.close();
+    // Stream straight from LittleFS — the framework's
+    // beginResponse(FS, path, ...) opens the file, pushes it through
+    // AsyncTCP in lwIP-friendly chunks, and closes on completion. No
+    // body String, no body.reserve(sz+1) → no OOM hazard regardless
+    // of file size. Replaces the prior slurp that could call the
+    // global new_handler on any cast over ~70 KiB on a heap-tight
+    // C3. See ESP32 stability review E2.
     bool dl = req->hasParam("dl");
-    AsyncWebServerResponse* r = req->beginResponse(200, "application/x-asciicast", body);
+    AsyncWebServerResponse* r =
+        req->beginResponse(LittleFS, e.cast_path, "application/x-asciicast", dl);
     r->addHeader("Cache-Control", "no-store");
     if (dl) {
         String fn = e.cast_path.substring(e.cast_path.lastIndexOf('/') + 1);
@@ -939,26 +928,13 @@ static void send_raw(AsyncWebServerRequest* req) {
         req->send(403, "text/plain", "forbidden"); return;
     }
     if (!LittleFS.exists(p)) { req->send(404, "text/plain", "not found"); return; }
-    File f = LittleFS.open(p, "r");
-    if (!f) { req->send(500, "text/plain", "open failed"); return; }
-    size_t sz = f.size();
-    static const size_t RAW_MAX = 512 * 1024;
-    if (sz > RAW_MAX) sz = RAW_MAX;
-    String body;
-    body.reserve(sz + 1);
-    {
-        uint8_t buf[512];
-        size_t left = sz;
-        while (left) {
-            size_t n = f.read(buf, left > sizeof(buf) ? sizeof(buf) : left);
-            if (!n) break;
-            body.concat((const char*)buf, n);
-            left -= n;
-        }
-    }
-    f.close();
+    // Stream from LittleFS in lwIP-friendly chunks. Same reasoning as
+    // send_cast — the prior body.reserve(sz+1) for files up to 512 KiB
+    // was the largest single OOM hazard on the dashboard. See ESP32
+    // stability review E2.
     String fn = p.substring(p.lastIndexOf('/') + 1);
-    AsyncWebServerResponse* r = req->beginResponse(200, "application/x-asciicast", body);
+    AsyncWebServerResponse* r =
+        req->beginResponse(LittleFS, p, "application/x-asciicast", /*download=*/true);
     r->addHeader("Content-Disposition", String("attachment; filename=\"") + fn + "\"");
     req->send(r);
 }

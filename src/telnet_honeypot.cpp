@@ -148,8 +148,84 @@ struct TnSession {
     // shell.execute → tn_send) and AsyncTCP task (onAck/onPoll →
     // tn_pump_out_) both touch it. Created in tn_on_client.
     SemaphoreHandle_t out_mux = nullptr;
+    // millis() at the moment forensics finished. Set by
+    // tn_finalize_inline. The zombie sweeper uses this to decide
+    // when AsyncTCP has had enough time to stop touching us.
+    uint32_t finalized_at_ms = 0;
+
+    // Destructor cleans up the FreeRTOS semaphore so deleting a
+    // session (whether via the clean-disconnect K_FINALIZE path or
+    // the zombie sweeper) doesn't leak a kernel object. Other
+    // members (Strings, FakeShell, Asciinema, AttackEntry) destruct
+    // automatically; the cast file is closed by tn_finalize_inline
+    // before the session ever reaches a delete path.
+    ~TnSession() {
+        if (out_mux) {
+            vSemaphoreDelete(out_mux);
+            out_mux = nullptr;
+        }
+    }
 };
 static constexpr size_t kTnOutboundCap = 16 * 1024;
+
+// Zombie list — sessions whose forensics ran via the K_STUCK_FINALIZE
+// path. They can't be deleted immediately because AsyncTCP may still
+// hold the void* arg and could call back into tn_on_data /
+// tn_on_disconnect / tn_on_poll. The zombie sweeper (called from
+// telnet_reap) walks this list and frees entries whose grace period
+// has elapsed — long enough that AsyncTCP has definitely cleaned up
+// its side of the connection.
+//
+// Without this, every stuck session leaked the TnSession struct
+// (~few hundred bytes including FakeShell + Asciinema + Strings +
+// the FreeRTOS semaphore) until reboot. At ~1/min stuck rate that's
+// ~kB/hour — bounded but cumulative on a heap-tight C3.
+static const size_t   kTnZombieMax     = 16;
+static const uint32_t kTnZombieGraceMs = 5UL * 60UL * 1000UL;  // 5 minutes
+static portMUX_TYPE   s_zombie_mux     = portMUX_INITIALIZER_UNLOCKED;
+static TnSession*     s_zombies[kTnZombieMax] = {};
+
+// Add a finalized session to the zombie list. Returns true on success.
+// Caller has already set s->finalized = true and removed s from the
+// active registry. If the zombie list is full we accept the leak
+// rather than risk a use-after-free by deleting too early.
+static bool zombie_add_(TnSession* s) {
+    if (!s) return false;
+    bool added = false;
+    portENTER_CRITICAL(&s_zombie_mux);
+    for (auto& slot : s_zombies) {
+        if (slot == nullptr) { slot = s; added = true; break; }
+    }
+    portEXIT_CRITICAL(&s_zombie_mux);
+    return added;
+}
+
+// Sweep zombies whose grace period has elapsed. Called from telnet_reap
+// once per second.
+static void zombie_sweep_(uint32_t now) {
+    TnSession* to_free[kTnZombieMax] = {};
+    size_t fn = 0;
+    portENTER_CRITICAL(&s_zombie_mux);
+    for (auto& slot : s_zombies) {
+        if (!slot) continue;
+        if (now - slot->finalized_at_ms > kTnZombieGraceMs) {
+            to_free[fn++] = slot;
+            slot = nullptr;
+        }
+    }
+    portEXIT_CRITICAL(&s_zombie_mux);
+    // Delete outside the critical section — destructors can take the
+    // FreeRTOS scheduler lock (vSemaphoreDelete) which would deadlock
+    // under portENTER_CRITICAL.
+    for (size_t i = 0; i < fn; ++i) {
+        if (to_free[i]) {
+            uint32_t id = to_free[i]->entry.id;
+            delete to_free[i];
+            Serial.printf("[telnet] zombie reaped id=%u (grace %us elapsed)\n",
+                          (unsigned)id, (unsigned)(kTnZombieGraceMs / 1000));
+        }
+    }
+}
 
 // Drain bytes from the per-session outbound ring into AsyncTCP. Bounded
 // — accepts whatever space() returns this call and returns. The
@@ -363,14 +439,20 @@ static void tn_worker_task(void*) {
         if (j.kind == TnFinalizeJob::K_STUCK_FINALIZE) {
             // Reaper-driven forensics for a session whose
             // onDisconnect never fired. Run the same forensics path
-            // (close cast file, persist entry) but DO NOT delete the
-            // session struct — AsyncTCP may still hold its void* arg.
-            // tn_on_disconnect's s->finalized check makes a late
-            // callback a no-op.
+            // (close cast file, persist entry), then hand the session
+            // over to the zombie list — the sweeper will delete it
+            // after a 5-minute grace period, by which time AsyncTCP
+            // has definitely stopped touching the void* arg. The H1
+            // idempotent guard in tn_on_disconnect is the safety net
+            // for any callback that fires inside the grace window.
             TnSession* s = (TnSession*)j.sess;
             if (!s) continue;
             tn_finalize_inline(s);
-            // Don't `delete s;` — AsyncTCP may still hold its arg.
+            s->finalized_at_ms = millis();
+            if (!zombie_add_(s)) {
+                Serial.printf("[telnet] zombie list full, leaking TnSession id=%u\n",
+                              (unsigned)s->entry.id);
+            }
             if (s_active > 0) s_active--;
             g_gate.setTelnetActive(s_active);
             continue;
@@ -732,6 +814,11 @@ void telnet_reap() {
             // small risk of a watchdog tick is preferable to leaving
             // the cast FD open and the slot occupied.
             tn_finalize_inline(finalize_victims[i]);
+            finalize_victims[i]->finalized_at_ms = millis();
+            if (!zombie_add_(finalize_victims[i])) {
+                Serial.printf("[telnet] zombie list full (inline path), leaking id=%u\n",
+                              (unsigned)finalize_victims[i]->entry.id);
+            }
             if (s_active > 0) s_active--;
             g_gate.setTelnetActive(s_active);
         }
@@ -757,6 +844,13 @@ void telnet_reap() {
     // device keeps running instead of bouncing every minute when
     // AsyncTCP/lwIP wedges. The kReasonTelnetStuck restart bucket is
     // retained in restart_reason.h for any future use.
+
+    // Sweep zombies whose 5-minute grace has elapsed. AsyncTCP has
+    // had ample time to drop its callback args by then; safe to
+    // delete now and reclaim the per-session heap (~few hundred
+    // bytes including FakeShell + Asciinema + Strings + the
+    // FreeRTOS semaphore the destructor cleans up).
+    zombie_sweep_(now);
 }
 
 } // namespace honeyopus
