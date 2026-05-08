@@ -30,6 +30,14 @@ static const uint16_t TN_ROWS = 24;
 #endif
 static const uint8_t  TN_MAX_CONCURRENT = HONEYOPUS_TN_MAX; // per-board cap (see platformio.ini)
 
+// Per-line input cap (TR-1). Bots routinely paste chained one-liners
+// > 256 chars; the prior 256-byte cap silently truncated everything
+// past that, losing the forensically interesting tail. 4 KB matches
+// a realistic shell readline buffer. With TN_MAX_CONCURRENT ≤ 8 (S3
+// boards) and one line_buf per session, worst-case heap footprint is
+// ≤ 32 KB.
+static constexpr size_t kTnLineMaxBytes = 4096;
+
 static AsyncServer*  s_server = nullptr;
 // Concurrent-session counter. Written by:
 //   - tn_on_client (AsyncTCP task) on accept
@@ -152,6 +160,7 @@ struct TnSession {
     int      attempts = 0;
     bool     iac_skip = false; // gobbling 1 byte after IAC cmd
     int      iac_state = 0;    // 0=normal,1=after IAC,2=after IAC+cmd,3=in subneg
+    bool     line_overflow_beeped = false;  // \a sent for current over-cap line
     uint32_t t0 = 0;
     uint32_t last_rx_ms = 0;   // millis() of the most recent inbound packet
                                // — drives the idle-timeout / reaper.
@@ -586,6 +595,7 @@ static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
             s->cast.in(evt.c_str(), evt.length());
             tn_send(s, "\r\n", 2, /*record=*/false);
             tn_handle_complete_line(s);
+            s->line_overflow_beeped = false;
             continue;
         }
         if (ch == 0x7f || ch == 0x08) {
@@ -594,6 +604,10 @@ static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
                 if (s->phase != TnSession::P_PASS)
                     tn_send(s, "\b \b", 3, /*record=*/false);
             }
+            // Trailing edit drops below cap → re-arm the bell for further
+            // overflow on this same line.
+            if (s->line_buf.length() < kTnLineMaxBytes)
+                s->line_overflow_beeped = false;
             continue;
         }
         if (ch == 0x03) { // Ctrl-C — record the abandoned line + ^C\r\n as
@@ -603,11 +617,28 @@ static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
             s->cast.in(evt.c_str(), evt.length());
             tn_send(s, "^C\r\n", 4, /*record=*/false);
             s->line_buf = "";
+            s->line_overflow_beeped = false;
             if (s->phase == TnSession::P_SHELL) tn_send(s, s->shell.prompt());
             continue;
         }
         if (ch < 0x20) continue;
-        if (s->line_buf.length() > 256) continue;
+        // Per-line input cap. Bumped from 256 → 4096 (TR-1): bots routinely
+        // paste chained one-liners > 256 chars (`for pid in /proc/[0-9]*; do
+        // …`-style multi-stage payloads), and silent truncation past 256
+        // tossed the most forensically interesting tail. 4 KB matches a
+        // realistic shell readline buffer; with TN_MAX_CONCURRENT≤8 the
+        // worst-case heap footprint is ≤32 KB. On the first byte that
+        // exceeds the cap, ring the terminal bell once (real shells do
+        // similar via readline) so the attacker sees a signal instead of
+        // their input being silently swallowed; further chars drop
+        // silently until the line resets.
+        if (s->line_buf.length() >= kTnLineMaxBytes) {
+            if (!s->line_overflow_beeped) {
+                s->line_overflow_beeped = true;
+                tn_send(s, "\a", 1, /*record=*/false);
+            }
+            continue;
+        }
         s->line_buf += (char)ch;
         if (s->phase == TnSession::P_PASS) {
             tn_send(s, "*", 1, /*record=*/false);
