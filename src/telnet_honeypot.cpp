@@ -17,6 +17,7 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <atomic>
 #include <new>   // std::nothrow for fault-tolerant heap allocations
 #include <time.h>
 
@@ -30,7 +31,31 @@ static const uint16_t TN_ROWS = 24;
 static const uint8_t  TN_MAX_CONCURRENT = HONEYOPUS_TN_MAX; // per-board cap (see platformio.ini)
 
 static AsyncServer*  s_server = nullptr;
-static volatile uint8_t s_active = 0;               // updated on connect/disconnect
+// Concurrent-session counter. Written by:
+//   - tn_on_client (AsyncTCP task) on accept
+//   - K_FINALIZE / K_STUCK_FINALIZE worker (worker task) on cleanup
+//   - tn_finalize_inline + telnet_reap fallback (loopTask) on stuck close
+// std::atomic gives us a safe inc/dec across cores without the prior
+// TOCTOU race where the AsyncTCP task could miss a decrement that the
+// worker had just published. The cap check at admit time uses a CAS
+// loop so two simultaneous accepts can't both squeeze past
+// TN_MAX_CONCURRENT.
+static std::atomic<uint8_t> s_active{0};
+
+// Atomic decrement-if-positive — preserves the prior `if (s_active > 0)
+// s_active--;` semantics safely. Underflow guard exists because the
+// cleanup path may be reached for sessions that were never admitted
+// (e.g. socket-accept races).
+static inline void s_active_dec_() {
+    uint8_t cur = s_active.load(std::memory_order_relaxed);
+    while (cur > 0) {
+        if (s_active.compare_exchange_weak(cur, (uint8_t)(cur - 1),
+                                           std::memory_order_relaxed,
+                                           std::memory_order_relaxed)) {
+            return;
+        }
+    }
+}
 // Worker queue: AsyncTCP callbacks just push the session here, the worker task
 // does the slow LittleFS finalization so the AsyncTCP polling task stays
 // responsive (the previous design starved lwIP and triggered TCP asserts).
@@ -453,8 +478,8 @@ static void tn_worker_task(void*) {
                 Serial.printf("[telnet] zombie list full, leaking TnSession id=%u\n",
                               (unsigned)s->entry.id);
             }
-            if (s_active > 0) s_active--;
-            g_gate.setTelnetActive(s_active);
+            s_active_dec_();
+            g_gate.setTelnetActive(s_active.load(std::memory_order_relaxed));
             continue;
         }
         if (j.kind == TnFinalizeJob::K_INPUT_LINE) {
@@ -486,8 +511,8 @@ static void tn_worker_task(void*) {
         if (!s) continue;
         tn_finalize_inline(s);
         delete s;
-        if (s_active > 0) s_active--;
-        g_gate.setTelnetActive(s_active);
+        s_active_dec_();
+        g_gate.setTelnetActive(s_active.load(std::memory_order_relaxed));
     }
 }
 
@@ -510,8 +535,8 @@ static void tn_finalize(TnSession* s) {
     // Queue full or not initialized — finalize inline as a fallback.
     tn_finalize_inline(s);
     delete s;
-    if (s_active > 0) s_active--;
-    g_gate.setTelnetActive(s_active);
+    s_active_dec_();
+    g_gate.setTelnetActive(s_active.load(std::memory_order_relaxed));
 }
 
 static void tn_on_data(void* arg, AsyncClient* /*c*/, void* data, size_t len) {
@@ -664,14 +689,24 @@ static void tn_on_client(void* /*arg*/, AsyncClient* c) {
         c->close();
         return;
     }
-    if (s_active >= TN_MAX_CONCURRENT) {
-        Serial.printf("[telnet] refusing connection from %s — at cap %u\n",
-                      peer_ip.c_str(), (unsigned)TN_MAX_CONCURRENT);
-        c->close();
-        return;
+    // Atomic check-and-increment — closes the prior TOCTOU window where
+    // two simultaneous accepts could both pass the cap test and both
+    // increment, putting s_active over TN_MAX_CONCURRENT.
+    uint8_t prev = s_active.load(std::memory_order_relaxed);
+    while (true) {
+        if (prev >= TN_MAX_CONCURRENT) {
+            Serial.printf("[telnet] refusing connection from %s — at cap %u\n",
+                          peer_ip.c_str(), (unsigned)TN_MAX_CONCURRENT);
+            c->close();
+            return;
+        }
+        if (s_active.compare_exchange_weak(prev, (uint8_t)(prev + 1),
+                                           std::memory_order_relaxed,
+                                           std::memory_order_relaxed)) {
+            break;
+        }
     }
-    s_active++;
-    g_gate.setTelnetActive(s_active);
+    g_gate.setTelnetActive((uint8_t)(prev + 1));
     g_gate.touch(peer_ip);
 
     auto* s = new TnSession();
@@ -826,8 +861,8 @@ void telnet_reap() {
                 Serial.printf("[telnet] zombie list full (inline path), leaking id=%u\n",
                               (unsigned)finalize_victims[i]->entry.id);
             }
-            if (s_active > 0) s_active--;
-            g_gate.setTelnetActive(s_active);
+            s_active_dec_();
+            g_gate.setTelnetActive(s_active.load(std::memory_order_relaxed));
         }
     }
     // Best-effort close — also queued to the worker, NOT here on
