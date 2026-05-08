@@ -16,43 +16,72 @@ static const uint16_t MAX_VPROCS               = 64;
 static const uint32_t MAX_VFILE_SIZE           = 16 * 1024;
 static const uint32_t MAX_SLEEP_MS             = 3000;
 
-// ------------ fake static content ------------
-static const char* FAKE_PASSWD =
-    "root:x:0:0:root:/root:/bin/bash\n"
-    "daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"
-    "bin:x:2:2:bin:/bin:/usr/sbin/nologin\n"
-    "sys:x:3:3:sys:/dev:/usr/sbin/nologin\n"
-    "sync:x:4:65534:sync:/bin:/bin/sync\n"
-    "man:x:6:12:man:/var/cache/man:/usr/sbin/nologin\n"
-    "mail:x:8:8:mail:/var/mail:/usr/sbin/nologin\n"
-    "www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\n"
-    "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"
-    "systemd-network:x:100:102:systemd Network Management,,,:/run/systemd/netif:/usr/sbin/nologin\n"
-    "syslog:x:102:106::/home/syslog:/usr/sbin/nologin\n"
-    "sshd:x:110:65534::/run/sshd:/usr/sbin/nologin\n"
-    "ubuntu:x:1000:1000:Ubuntu,,,:/home/ubuntu:/bin/bash\n";
+// ------------ per-persona static content (FS-CR-1 / FS-4 / FS-5) ------------
+//
+// Each persona has its own copy of the high-fingerprint fixtures: the
+// fields a sophisticated bot probes to figure out what kind of device
+// it landed on. Pre-2026-05-08 every persona returned the same Ubuntu
+// 18.04 / Xeon E5-2680 content, so a bot running `cat /proc/cpuinfo`
+// on what it believed was a HiLinux NVR Box got Xeon — instant tell.
+//
+// Realism rules of thumb:
+//   - Ubuntu       → x86_64, kernel 5.x, bash present, /etc/passwd has
+//                    the usual suspects, /proc/* is verbose.
+//   - BusyBox      → MIPS or ARM SoC, kernel 4.x, ash shell, minimal
+//                    /etc/passwd, sometimes no /etc/os-release at all.
+//   - RouterOS     → not a Unix shell. /proc and /etc don't exist in
+//                    the way bots expect; we return empty content for
+//                    the most-probed paths so cat looks like the file
+//                    is empty rather than wrong.
+//   - OpenWrt      → MIPS or ARM router, BusyBox + opkg, /etc/openwrt_
+//                    release present, /etc/passwd very minimal.
+//   - DVRDVS       → ARMv7 Cortex-A9, kernel 3.x, no /etc/os-release,
+//                    /etc/passwd is root + admin.
+//   - HiLinux NVR  → HiSilicon Hi3516 / Hi3520, kernel 3.x, armv7l,
+//                    /etc/passwd is root only, mounts include ubifs.
+//
+// Field discipline:
+//   - All strings end with the same line-terminator semantics they
+//     would have on a real device (trailing \n where the kernel emits
+//     one, no trailing \n where it doesn't).
+//   - Empty string ("") means "this file does not exist on this
+//     persona". Callers fall through to the default not-found path.
+//   - kernel_release / arch / uname_a stay consistent — `uname -r`
+//     and the second field of `uname -a` must agree.
+struct PersonaContent {
+    const char* os_release;     // /etc/os-release ("" = absent)
+    const char* cpuinfo;        // /proc/cpuinfo
+    const char* meminfo;        // /proc/meminfo
+    const char* mounts;         // /proc/mounts
+    const char* hosts;          // /etc/hosts
+    const char* resolv;         // /etc/resolv.conf ("" = absent)
+    const char* passwd;         // /etc/passwd
+    const char* version_proc;   // /proc/version (kernel build banner)
+    const char* uname_kernel;   // `uname -r` (kernel release)
+    const char* uname_arch;     // `uname -m` (machine)
+    const char* uname_a;        // full `uname -a` string (NO trailing \n)
+    const char* issue;          // /etc/issue ("" = absent)
+};
 
-static const char* FAKE_SHADOW =
-    "root:!:18000:0:99999:7:::\n"
-    "daemon:*:18000:0:99999:7:::\n"
-    "ubuntu:!:18000:0:99999:7:::\n";
-
-static const char* FAKE_OS_RELEASE =
+// ----- Ubuntu: 22.04.1 LTS / x86_64 -----
+// Aligned with the persona profile banner ("Ubuntu 22.04.1 LTS"). The
+// previous fixtures advertised 18.04 on a 22.04 banner, which was
+// itself a tell.
+static const char* UBUNTU_OS_RELEASE =
+    "PRETTY_NAME=\"Ubuntu 22.04.1 LTS\"\n"
     "NAME=\"Ubuntu\"\n"
-    "VERSION=\"18.04.6 LTS (Bionic Beaver)\"\n"
+    "VERSION_ID=\"22.04\"\n"
+    "VERSION=\"22.04.1 LTS (Jammy Jellyfish)\"\n"
+    "VERSION_CODENAME=jammy\n"
     "ID=ubuntu\n"
     "ID_LIKE=debian\n"
-    "PRETTY_NAME=\"Ubuntu 18.04.6 LTS\"\n"
-    "VERSION_ID=\"18.04\"\n"
     "HOME_URL=\"https://www.ubuntu.com/\"\n"
     "SUPPORT_URL=\"https://help.ubuntu.com/\"\n"
     "BUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\n"
-    "VERSION_CODENAME=bionic\n"
-    "UBUNTU_CODENAME=bionic\n";
+    "PRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\n"
+    "UBUNTU_CODENAME=jammy\n";
 
-static const char* FAKE_ISSUE = "Ubuntu 18.04.6 LTS \\n \\l\n\n";
-
-static const char* FAKE_CPUINFO =
+static const char* UBUNTU_CPUINFO =
     "processor\t: 0\n"
     "vendor_id\t: GenuineIntel\n"
     "cpu family\t: 6\n"
@@ -69,7 +98,7 @@ static const char* FAKE_CPUINFO =
     "bogomips\t: 4799.99\n"
     "address sizes\t: 46 bits physical, 48 bits virtual\n\n";
 
-static const char* FAKE_MEMINFO =
+static const char* UBUNTU_MEMINFO =
     "MemTotal:        1009856 kB\n"
     "MemFree:          120432 kB\n"
     "MemAvailable:     704128 kB\n"
@@ -78,14 +107,14 @@ static const char* FAKE_MEMINFO =
     "SwapTotal:             0 kB\n"
     "SwapFree:              0 kB\n";
 
-static const char* FAKE_MOUNTS_PROC =
+static const char* UBUNTU_MOUNTS =
     "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n"
     "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n"
     "udev /dev devtmpfs rw,nosuid,relatime,size=494056k,nr_inodes=123514,mode=755 0 0\n"
-    "/dev/vda1 / ext4 rw,relatime,errors=remount-ro,data=ordered 0 0\n"
+    "/dev/vda1 / ext4 rw,relatime,errors=remount-ro 0 0\n"
     "tmpfs /run tmpfs rw,nosuid,noexec,relatime,size=101000k,mode=755 0 0\n";
 
-static const char* FAKE_HOSTS =
+static const char* UBUNTU_HOSTS =
     "127.0.0.1 localhost\n"
     "127.0.1.1 ubuntu\n\n"
     "# The following lines are desirable for IPv6 capable hosts\n"
@@ -95,13 +124,326 @@ static const char* FAKE_HOSTS =
     "ff02::1 ip6-allnodes\n"
     "ff02::2 ip6-allrouters\n";
 
-static const char* FAKE_RESOLV =
+static const char* UBUNTU_RESOLV =
     "# Generated by NetworkManager\n"
     "nameserver 8.8.8.8\n"
     "nameserver 1.1.1.1\n";
 
-static const char* FAKE_UNAME_A =
-    "Linux ubuntu 4.15.0-142-generic #146-Ubuntu SMP Tue Apr 13 01:11:19 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux";
+static const char* UBUNTU_PASSWD =
+    "root:x:0:0:root:/root:/bin/bash\n"
+    "daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"
+    "bin:x:2:2:bin:/bin:/usr/sbin/nologin\n"
+    "sys:x:3:3:sys:/dev:/usr/sbin/nologin\n"
+    "sync:x:4:65534:sync:/bin:/bin/sync\n"
+    "man:x:6:12:man:/var/cache/man:/usr/sbin/nologin\n"
+    "mail:x:8:8:mail:/var/mail:/usr/sbin/nologin\n"
+    "www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\n"
+    "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"
+    "systemd-network:x:100:102:systemd Network Management,,,:/run/systemd/netif:/usr/sbin/nologin\n"
+    "syslog:x:102:106::/home/syslog:/usr/sbin/nologin\n"
+    "sshd:x:110:65534::/run/sshd:/usr/sbin/nologin\n"
+    "ubuntu:x:1000:1000:Ubuntu,,,:/home/ubuntu:/bin/bash\n";
+
+static const char* UBUNTU_VERSION_PROC =
+    "Linux version 5.15.0-91-generic (buildd@lcy02-amd64-045) "
+    "(gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0, GNU ld (GNU Binutils for Ubuntu) 2.38) "
+    "#101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023\n";
+
+// ----- BusyBox: generic embedded MIPS, BusyBox 1.35.0 -----
+// BusyBox-only systems frequently lack /etc/os-release entirely. Bots
+// that probe it expect ENOENT; we return "" so callers fall through.
+static const char* BUSYBOX_OS_RELEASE = "";
+
+static const char* BUSYBOX_CPUINFO =
+    "system type\t\t: Atheros AR9344 rev 2\n"
+    "machine\t\t\t: TP-LINK TL-WDR3600 v1\n"
+    "processor\t\t: 0\n"
+    "cpu model\t\t: MIPS 74Kc V5.0\n"
+    "BogoMIPS\t\t: 278.93\n"
+    "wait instruction\t: yes\n"
+    "microsecond timers\t: yes\n"
+    "tlb_entries\t\t: 32\n"
+    "extra interrupt vector\t: yes\n"
+    "hardware watchpoint\t: yes, count: 4, address/irw mask: [0x0000, 0x0840, 0x0840, 0x0840]\n"
+    "isa\t\t\t: mips1 mips2 mips32r1 mips32r2\n"
+    "ASEs implemented\t: mips16 dsp\n"
+    "shadow register sets\t: 1\n"
+    "kscratch registers\t: 0\n"
+    "package\t\t\t: 0\n"
+    "core\t\t\t: 0\n"
+    "VCED exceptions\t\t: not available\n"
+    "VCEI exceptions\t\t: not available\n";
+
+static const char* BUSYBOX_MEMINFO =
+    "MemTotal:          61420 kB\n"
+    "MemFree:           18044 kB\n"
+    "MemAvailable:      27108 kB\n"
+    "Buffers:            1932 kB\n"
+    "Cached:            12648 kB\n"
+    "SwapTotal:             0 kB\n"
+    "SwapFree:              0 kB\n";
+
+static const char* BUSYBOX_MOUNTS =
+    "/dev/root / squashfs ro,relatime 0 0\n"
+    "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n"
+    "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n"
+    "tmpfs /tmp tmpfs rw,nosuid,nodev,noatime 0 0\n"
+    "/dev/mtdblock3 /overlay jffs2 rw,noatime 0 0\n"
+    "overlayfs:/overlay / overlay rw,noatime,lowerdir=/,upperdir=/overlay/upper,workdir=/overlay/work 0 0\n"
+    "debugfs /sys/kernel/debug debugfs rw,noatime 0 0\n";
+
+static const char* BUSYBOX_HOSTS =
+    "127.0.0.1 localhost\n";
+
+static const char* BUSYBOX_RESOLV =
+    "nameserver 192.168.1.1\n";
+
+static const char* BUSYBOX_PASSWD =
+    "root:x:0:0:root:/root:/bin/ash\n"
+    "nobody:x:99:99:nobody:/:/bin/false\n"
+    "admin:x:1000:1000:admin:/home/admin:/bin/ash\n";
+
+static const char* BUSYBOX_VERSION_PROC =
+    "Linux version 4.14.221 (builder@buildhost) "
+    "(gcc version 7.5.0 (OpenWrt GCC 7.5.0 r11208-ce6496d796)) "
+    "#0 SMP Wed Mar 24 17:43:00 2021\n";
+
+// ----- RouterOS: not a Unix shell. Most /proc and /etc are absent. -----
+// RouterOS doesn't ship cat or /proc; if a bot somehow gets to a path
+// that we honour anyway, returning "" gives an empty-file response —
+// closer to truth than fake Linux content.
+static const char* ROUTEROS_OS_RELEASE = "";
+static const char* ROUTEROS_CPUINFO    = "";
+static const char* ROUTEROS_MEMINFO    = "";
+static const char* ROUTEROS_MOUNTS     = "";
+static const char* ROUTEROS_HOSTS      = "";
+static const char* ROUTEROS_RESOLV     = "";
+static const char* ROUTEROS_PASSWD     = "";
+static const char* ROUTEROS_VERSION_PROC = "";
+
+// ----- OpenWrt: BARRIER BREAKER 14.07 / MIPS -----
+// Matches the persona's MOTD ASCII art ("BARRIER BREAKER (14.07,
+// r42625)"). Real OpenWrt 14.07 ran on kernel 3.10.x.
+static const char* OPENWRT_OS_RELEASE =
+    "NAME=\"OpenWrt\"\n"
+    "VERSION=\"BARRIER BREAKER (14.07, r42625)\"\n"
+    "ID=openwrt\n"
+    "ID_LIKE=lede\n"
+    "PRETTY_NAME=\"OpenWrt BARRIER BREAKER 14.07\"\n"
+    "VERSION_ID=\"14.07\"\n"
+    "HOME_URL=\"https://openwrt.org/\"\n"
+    "BUG_URL=\"https://bugs.openwrt.org/\"\n"
+    "SUPPORT_URL=\"https://forum.openwrt.org/\"\n";
+
+static const char* OPENWRT_CPUINFO =
+    "system type\t\t: Atheros AR9344 rev 2\n"
+    "machine\t\t\t: TP-LINK TL-WDR3600 v1\n"
+    "processor\t\t: 0\n"
+    "cpu model\t\t: MIPS 74Kc V5.0\n"
+    "BogoMIPS\t\t: 278.93\n"
+    "wait instruction\t: yes\n"
+    "microsecond timers\t: yes\n"
+    "tlb_entries\t\t: 32\n"
+    "isa\t\t\t: mips1 mips2 mips32r1 mips32r2\n"
+    "ASEs implemented\t: mips16 dsp\n"
+    "package\t\t\t: 0\n"
+    "core\t\t\t: 0\n";
+
+static const char* OPENWRT_MEMINFO =
+    "MemTotal:          61420 kB\n"
+    "MemFree:           14228 kB\n"
+    "MemAvailable:      26384 kB\n"
+    "Buffers:            1812 kB\n"
+    "Cached:            13164 kB\n"
+    "SwapTotal:             0 kB\n"
+    "SwapFree:              0 kB\n";
+
+static const char* OPENWRT_MOUNTS =
+    "/dev/root / squashfs ro,relatime 0 0\n"
+    "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n"
+    "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n"
+    "tmpfs /tmp tmpfs rw,nosuid,nodev,noatime 0 0\n"
+    "/dev/mtdblock3 /overlay jffs2 rw,noatime 0 0\n"
+    "overlayfs:/overlay / overlay rw,noatime,lowerdir=/,upperdir=/overlay/upper,workdir=/overlay/work 0 0\n"
+    "debugfs /sys/kernel/debug debugfs rw,noatime 0 0\n";
+
+static const char* OPENWRT_HOSTS =
+    "127.0.0.1 localhost\n";
+
+static const char* OPENWRT_RESOLV =
+    "# /tmp/resolv.conf.auto generated by dnsmasq\n"
+    "nameserver 192.168.1.1\n";
+
+static const char* OPENWRT_PASSWD =
+    "root:x:0:0:root:/root:/bin/ash\n"
+    "daemon:*:1:1:daemon:/var:/bin/false\n"
+    "nobody:*:65534:65534:nobody:/var:/bin/false\n";
+
+static const char* OPENWRT_VERSION_PROC =
+    "Linux version 3.10.49 (blogic@buildhost) "
+    "(gcc version 4.8.3 (OpenWrt/Linaro GCC 4.8-2014.04 r42625) ) "
+    "#1 Tue Sep 23 17:12:08 UTC 2014\n";
+
+// ----- DVRDVS: ARMv7 / kernel 3.4 / 2014-vintage DVR firmware -----
+// DVR firmware typically has no /etc/os-release, an /etc/passwd with
+// just root + admin, and an ARM Cortex-A9 SoC.
+static const char* DVRDVS_OS_RELEASE = "";
+
+static const char* DVRDVS_CPUINFO =
+    "Processor\t: ARMv7 Processor rev 1 (v7l)\n"
+    "BogoMIPS\t: 532.48\n"
+    "Features\t: swp half thumb fastmult vfp edsp neon vfpv3 tls vfpd32\n"
+    "CPU implementer\t: 0x41\n"
+    "CPU architecture: 7\n"
+    "CPU variant\t: 0x2\n"
+    "CPU part\t: 0xc09\n"
+    "CPU revision\t: 1\n"
+    "\n"
+    "Hardware\t: hi3520d\n"
+    "Revision\t: 0000\n"
+    "Serial\t\t: 0000000000000000\n";
+
+static const char* DVRDVS_MEMINFO =
+    "MemTotal:         253840 kB\n"
+    "MemFree:           42168 kB\n"
+    "Buffers:            8120 kB\n"
+    "Cached:            76544 kB\n"
+    "SwapTotal:             0 kB\n"
+    "SwapFree:              0 kB\n";
+
+static const char* DVRDVS_MOUNTS =
+    "rootfs / rootfs rw 0 0\n"
+    "/dev/root / squashfs ro,relatime 0 0\n"
+    "proc /proc proc rw,relatime 0 0\n"
+    "sysfs /sys sysfs rw,relatime 0 0\n"
+    "tmpfs /tmp tmpfs rw,relatime 0 0\n"
+    "tmpfs /var tmpfs rw,relatime 0 0\n"
+    "/dev/mtdblock3 /home jffs2 rw,relatime 0 0\n";
+
+static const char* DVRDVS_HOSTS =
+    "127.0.0.1 localhost\n";
+
+static const char* DVRDVS_RESOLV = "";
+
+static const char* DVRDVS_PASSWD =
+    "root:x:0:0::/root:/bin/sh\n"
+    "admin:x:500:500::/home/admin:/bin/sh\n";
+
+static const char* DVRDVS_VERSION_PROC =
+    "Linux version 3.4.35 (root@dvr-build) "
+    "(gcc version 4.8.3 20131202 (prerelease) (Hisilicon_v300) ) "
+    "#1 PREEMPT Wed Jan 8 18:51:30 CST 2014\n";
+
+// ----- HiLinux NVR Box: HiSilicon Hi3516 / kernel 3.10 / armv7l -----
+// The HiLinux persona is the "NVR Box" appearance bots target most
+// often — anything in the Hi3516/Hi3520 family. We model it after
+// the Hisilicon DVR/IPC SDK output that ships with these devices.
+static const char* HILINUX_OS_RELEASE = "";
+
+static const char* HILINUX_CPUINFO =
+    "Processor\t: ARMv7 Processor rev 5 (v7l)\n"
+    "BogoMIPS\t: 1196.85\n"
+    "Features\t: swp half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt\n"
+    "CPU implementer\t: 0x41\n"
+    "CPU architecture: 7\n"
+    "CPU variant\t: 0x0\n"
+    "CPU part\t: 0xc07\n"
+    "CPU revision\t: 5\n"
+    "\n"
+    "Hardware\t: hi3516cv300\n"
+    "Revision\t: 0000\n"
+    "Serial\t\t: 0000000000000000\n";
+
+static const char* HILINUX_MEMINFO =
+    "MemTotal:         126244 kB\n"
+    "MemFree:           28912 kB\n"
+    "Buffers:            5320 kB\n"
+    "Cached:            42048 kB\n"
+    "SwapTotal:             0 kB\n"
+    "SwapFree:              0 kB\n";
+
+static const char* HILINUX_MOUNTS =
+    "rootfs / rootfs rw 0 0\n"
+    "/dev/mtdblock2 / squashfs ro,relatime 0 0\n"
+    "proc /proc proc rw,relatime 0 0\n"
+    "sysfs /sys sysfs rw,relatime 0 0\n"
+    "tmpfs /tmp tmpfs rw,relatime 0 0\n"
+    "tmpfs /var tmpfs rw,relatime 0 0\n"
+    "/dev/mtdblock4 /usr/local jffs2 rw,relatime 0 0\n"
+    "ubi0:rootfs /mnt/mtd ubifs rw,relatime 0 0\n";
+
+static const char* HILINUX_HOSTS =
+    "127.0.0.1 localhost\n";
+
+static const char* HILINUX_RESOLV = "";
+
+static const char* HILINUX_PASSWD =
+    "root:x:0:0:root:/root:/bin/sh\n";
+
+static const char* HILINUX_VERSION_PROC =
+    "Linux version 3.10.0 (root@buildhost) "
+    "(gcc version 4.8.3 20140320 (prerelease) (Hisilicon_v500) ) "
+    "#46 SMP PREEMPT Mon Aug 28 11:23:34 CST 2017\n";
+
+// Order MUST match TelnetPersona enum order (Ubuntu, BusyBox, RouterOS,
+// OpenWrt, DVRDVS, HiLinux). Same convention used by telnet_persona.cpp's
+// profiles[] array.
+static const PersonaContent PERSONA_CONTENT[6] = {
+    /* Ubuntu   */ {
+        UBUNTU_OS_RELEASE, UBUNTU_CPUINFO, UBUNTU_MEMINFO, UBUNTU_MOUNTS,
+        UBUNTU_HOSTS, UBUNTU_RESOLV, UBUNTU_PASSWD, UBUNTU_VERSION_PROC,
+        "5.15.0-91-generic", "x86_64",
+        "Linux ubuntu-server 5.15.0-91-generic #101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux",
+        "Ubuntu 22.04.1 LTS \\n \\l\n\n",
+    },
+    /* BusyBox  */ {
+        BUSYBOX_OS_RELEASE, BUSYBOX_CPUINFO, BUSYBOX_MEMINFO, BUSYBOX_MOUNTS,
+        BUSYBOX_HOSTS, BUSYBOX_RESOLV, BUSYBOX_PASSWD, BUSYBOX_VERSION_PROC,
+        "4.14.221", "mips",
+        "Linux router 4.14.221 #0 SMP Wed Mar 24 17:43:00 2021 mips GNU/Linux",
+        "",
+    },
+    /* RouterOS */ {
+        ROUTEROS_OS_RELEASE, ROUTEROS_CPUINFO, ROUTEROS_MEMINFO, ROUTEROS_MOUNTS,
+        ROUTEROS_HOSTS, ROUTEROS_RESOLV, ROUTEROS_PASSWD, ROUTEROS_VERSION_PROC,
+        "", "",
+        "",
+        "",
+    },
+    /* OpenWrt  */ {
+        OPENWRT_OS_RELEASE, OPENWRT_CPUINFO, OPENWRT_MEMINFO, OPENWRT_MOUNTS,
+        OPENWRT_HOSTS, OPENWRT_RESOLV, OPENWRT_PASSWD, OPENWRT_VERSION_PROC,
+        "3.10.49", "mips",
+        "Linux OpenWrt 3.10.49 #1 Tue Sep 23 17:12:08 UTC 2014 mips GNU/Linux",
+        "",
+    },
+    /* DVRDVS   */ {
+        DVRDVS_OS_RELEASE, DVRDVS_CPUINFO, DVRDVS_MEMINFO, DVRDVS_MOUNTS,
+        DVRDVS_HOSTS, DVRDVS_RESOLV, DVRDVS_PASSWD, DVRDVS_VERSION_PROC,
+        "3.4.35", "armv7l",
+        "Linux DVRDVS 3.4.35 #1 PREEMPT Wed Jan 8 18:51:30 CST 2014 armv7l GNU/Linux",
+        "",
+    },
+    /* HiLinux  */ {
+        HILINUX_OS_RELEASE, HILINUX_CPUINFO, HILINUX_MEMINFO, HILINUX_MOUNTS,
+        HILINUX_HOSTS, HILINUX_RESOLV, HILINUX_PASSWD, HILINUX_VERSION_PROC,
+        "3.10.0", "armv7l",
+        "Linux hilinux-nvrbox 3.10.0 #46 SMP PREEMPT Mon Aug 28 11:23:34 CST 2017 armv7l GNU/Linux",
+        "",
+    },
+};
+
+// ------------ persona-neutral fake content ------------
+//
+// The FAKE_X constants below are reused across all personas — typically
+// because the field is the same shape on every Linux-derivative
+// (e.g. /proc/loadavg formatting), or because no realistic attacker
+// probes the file in a persona-distinguishing way.
+
+static const char* FAKE_SHADOW =
+    "root:!:18000:0:99999:7:::\n"
+    "daemon:*:18000:0:99999:7:::\n"
+    "ubuntu:!:18000:0:99999:7:::\n";
 
 static const char* FAKE_UPTIME_PROC = "1234567.89 1234000.00\n";
 
@@ -287,7 +629,7 @@ String FakeShell::motd() const {
     String s;
     switch (persona_) {
         case TelnetPersona::Ubuntu:
-            s += "Welcome to Ubuntu 18.04.6 LTS (GNU/Linux 4.15.0-142-generic x86_64)\r\n\r\n";
+            s += "Welcome to Ubuntu 22.04.1 LTS (GNU/Linux 5.15.0-91-generic x86_64)\r\n\r\n";
             s += " * Documentation:  https://help.ubuntu.com\r\n";
             s += " * Management:     https://landscape.canonical.com\r\n";
             s += " * Support:        https://ubuntu.com/advantage\r\n\r\n";
@@ -1355,13 +1697,19 @@ String FakeShell::cmdCd_(Cmd& c) {
     return "";
 }
 
-String FakeShell::passwdFile_() const { return FAKE_PASSWD; }
+const PersonaContent& FakeShell::personaContent_() const {
+    return PERSONA_CONTENT[(int)persona_];
+}
+
+String FakeShell::passwdFile_() const { return personaContent_().passwd; }
 
 bool FakeShell::procVirtualFile_(const String& abs, const Cmd& caller, String& out) const {
+    const auto& pc = personaContent_();
     // Top-level /proc/* files first.
-    if (abs == "/proc/cpuinfo")     { out += FAKE_CPUINFO; return true; }
-    if (abs == "/proc/meminfo")     { out += FAKE_MEMINFO; return true; }
-    if (abs == "/proc/mounts")      { out += FAKE_MOUNTS_PROC; return true; }
+    if (abs == "/proc/cpuinfo")     { out += pc.cpuinfo;      return true; }
+    if (abs == "/proc/meminfo")     { out += pc.meminfo;      return true; }
+    if (abs == "/proc/mounts")      { out += pc.mounts;       return true; }
+    if (abs == "/proc/version")     { out += pc.version_proc; return true; }
     if (abs == "/proc/uptime")      { out += FAKE_UPTIME_PROC; return true; }
     if (abs == "/proc/loadavg")     { out += FAKE_LOADAVG_PROC; return true; }
     if (abs == "/proc/stat")        { out += FAKE_STAT_PROC; return true; }
@@ -1553,7 +1901,7 @@ bool FakeShell::procVirtualFile_(const String& abs, const Cmd& caller, String& o
                "ffffffffff600000-ffffffffff601000 r-xp 00000000 00:00 0                  [vsyscall]\n";
         return true;
     }
-    if (tail == "mounts") { out += FAKE_MOUNTS_PROC; return true; }
+    if (tail == "mounts") { out += personaContent_().mounts; return true; }
     if (tail == "mountinfo") {
         out += "23 28 0:21 / /sys rw,nosuid,nodev,noexec,relatime shared:7 - sysfs sysfs rw\n"
                "24 28 0:4 / /proc rw,nosuid,nodev,noexec,relatime shared:13 - proc proc rw\n"
@@ -1583,16 +1931,42 @@ String FakeShell::cmdCat_(Cmd& c) {
         const String& arg=c.argv[i];
         if (arg.startsWith("-")) continue;
         String abs = resolvePath_(arg);
-        if (abs=="/etc/passwd") { out += FAKE_PASSWD; continue; }
+        const auto& pc = personaContent_();
+        if (abs=="/etc/passwd") {
+            if (pc.passwd[0]) { out += pc.passwd; }
+            else { last_status_ok_ = false;
+                   out += "cat: /etc/passwd: No such file or directory\n"; }
+            continue;
+        }
         if (abs=="/etc/shadow") {
             if (user_!="root") { last_status_ok_=false; out += "cat: /etc/shadow: Permission denied\n"; continue; }
             out += FAKE_SHADOW; continue;
         }
-        if (abs=="/etc/os-release") { out += FAKE_OS_RELEASE; continue; }
-        if (abs=="/etc/issue")      { out += FAKE_ISSUE; continue; }
+        if (abs=="/etc/os-release") {
+            if (pc.os_release[0]) { out += pc.os_release; }
+            else { last_status_ok_ = false;
+                   out += "cat: /etc/os-release: No such file or directory\n"; }
+            continue;
+        }
+        if (abs=="/etc/issue") {
+            if (pc.issue[0]) out += pc.issue;
+            // Empty-issue personas: cat returns silent empty (most embedded
+            // boxes don't have /etc/issue at all).
+            continue;
+        }
         if (abs=="/etc/hostname")   { out += host_; out += "\n"; continue; }
-        if (abs=="/etc/hosts")      { out += FAKE_HOSTS; continue; }
-        if (abs=="/etc/resolv.conf"){ out += FAKE_RESOLV; continue; }
+        if (abs=="/etc/hosts")      {
+            if (pc.hosts[0]) { out += pc.hosts; }
+            else { last_status_ok_ = false;
+                   out += "cat: /etc/hosts: No such file or directory\n"; }
+            continue;
+        }
+        if (abs=="/etc/resolv.conf"){
+            if (pc.resolv[0]) { out += pc.resolv; }
+            else { last_status_ok_ = false;
+                   out += "cat: /etc/resolv.conf: No such file or directory\n"; }
+            continue;
+        }
         if (abs=="/etc/machine-id") { out += "f3b1d4c2a5e74e8b9c1f0a2d3e4f5a6b\n"; continue; }
         if (abs=="/proc/net/route") {
             out += "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n";
@@ -1730,13 +2104,19 @@ String FakeShell::cmdUname_(Cmd& c) {
         else if (x=="-p") p=true;
         else if (x=="-o") o=true;
     }
-    if (a) return String(FAKE_UNAME_A)+"\n";
+    const auto& pc = personaContent_();
+    // RouterOS persona has empty uname strings — uname isn't a thing on
+    // RouterOS. Real RouterOS would give "bad command name uname",
+    // which the persona-aware not-found path emits. For all other
+    // personas, fall through to the per-flag assembly with persona-
+    // faithful kernel/arch/uname_a fields.
+    if (a && pc.uname_a[0]) return String(pc.uname_a) + "\n";
     String out;
     if (s) out += "Linux";
     if (n) { if (out.length()) out+=' '; out+=host_; }
-    if (r) { if (out.length()) out+=' '; out+="4.15.0-142-generic"; }
-    if (m) { if (out.length()) out+=' '; out+="x86_64"; }
-    if (p) { if (out.length()) out+=' '; out+="x86_64"; }
+    if (r) { if (out.length()) out+=' '; out+=pc.uname_kernel; }
+    if (m) { if (out.length()) out+=' '; out+=pc.uname_arch; }
+    if (p) { if (out.length()) out+=' '; out+=pc.uname_arch; }
     if (o) { if (out.length()) out+=' '; out+="GNU/Linux"; }
     out+="\n"; return out;
 }
@@ -1886,7 +2266,7 @@ String FakeShell::cmdLast_(Cmd& c) {
         "reboot   system boot  4.15.0-142-gener Sun Aug 20 09:32   still running\n\n"
         "wtmp begins Sun Aug 20 09:32:14 2023\n";
 }
-String FakeShell::cmdMount_(Cmd& c) { (void)c; return FAKE_MOUNTS_PROC; }
+String FakeShell::cmdMount_(Cmd& c) { (void)c; return personaContent_().mounts; }
 String FakeShell::cmdLscpu_(Cmd& c) {
     (void)c;
     return

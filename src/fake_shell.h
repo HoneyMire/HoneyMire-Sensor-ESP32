@@ -191,6 +191,12 @@ private:
     void logCommand_(const String& raw, const std::vector<CmdNode>& chain);
     String passwdFile_() const;
 
+    // Accessor for the per-persona content table (PERSONA_CONTENT in
+    // fake_shell.cpp). Defined inline at use sites — the struct is
+    // file-private to fake_shell.cpp because its fields are
+    // implementation details of the FS-CR-1 persona pass.
+    const struct PersonaContent& personaContent_() const;
+
     // Synthesize a /proc/<pid>/<file> or /proc/<topfile> response. Returns
     // true if `abs` is a recognized /proc path and writes its content to
     // `out`. `caller` is the cat/head/tail invocation, used for
