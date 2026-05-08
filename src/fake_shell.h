@@ -244,6 +244,13 @@ private:
     // BusyBox's "applet not found" line, the latter passes through
     // verbatim.
     bool last_was_unknown_cmd_ = false;
+    // Set true while we're inside a `busybox <applet>` re-dispatch
+    // (the dispatcher strips the "busybox " prefix and recurses).
+    // Lets cmdWget_ etc emit busybox-flavored output (terser, no
+    // "HTTP request sent" / "Saving to" block) when the attacker
+    // explicitly invoked via busybox, even on a persona where bare
+    // `wget` would be GNU wget.
+    bool in_busybox_call_ = false;
 };
 
 } // namespace honeyopus

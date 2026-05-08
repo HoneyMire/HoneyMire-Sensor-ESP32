@@ -1210,7 +1210,14 @@ String FakeShell::runOne_(Cmd& c) {
         String applet = c.argv[1];
         c.argv.erase(c.argv.begin());
         c.exe = normalizeExe_(c.argv[0]);
+        // Mark the inner dispatch as a busybox-context call so applets
+        // (cmdWget_, etc.) can emit busybox-flavored output instead of
+        // their default GNU style, regardless of which persona the
+        // session is wearing.
+        bool prev_busybox = in_busybox_call_;
+        in_busybox_call_ = true;
         String r = runOne_(c);
+        in_busybox_call_ = prev_busybox;
         // If the inner dispatch fell through to the persona's
         // not-found path (NOT a real applet error), rewrite as the
         // BusyBox applet-not-found line — that's what real
@@ -2437,6 +2444,50 @@ String FakeShell::cmdWget_(Cmd& c) {
     String host_only = host;
     int hostcolon = host_only.indexOf(':');
     if (hostcolon > 0) host_only = host_only.substring(0, hostcolon);
+    bool is_https = url.startsWith("https://") || url.startsWith("HTTPS://");
+    String port_str = is_https ? "443" : "80";
+    uint32_t fsize = vf ? vf->size : 8192;
+
+    // BusyBox wget emits a much terser dialogue than GNU wget: no
+    // "HTTP request sent / Saving to:" block, no "--YYYY-MM-DD ..." log
+    // prefix, no `(MB/s) - 'file' saved [size/size]` final line. Bots
+    // that key off these lines treat their absence as a tell, so when
+    // we're invoked via `busybox wget` (any persona) OR the persona's
+    // wget is itself busybox (BusyBox / OpenWrt / DVRDVS / HiLinux),
+    // emit busybox 1.35-flavored output instead.
+    bool busybox_style = in_busybox_call_ ||
+                         persona_ == TelnetPersona::BusyBox ||
+                         persona_ == TelnetPersona::OpenWrt ||
+                         persona_ == TelnetPersona::DVRDVS ||
+                         persona_ == TelnetPersona::HiLinux;
+
+    if (busybox_style) {
+        String r;
+        if (isIpLiteral_(host_only)) {
+            r += "Connecting to "+host_only+" ("+host_only+":"+port_str+")\n";
+        } else {
+            String resolved = hashedFakeIp_(host_only);
+            r += "Connecting to "+host_only+" ("+resolved+":"+port_str+")\n";
+        }
+        if (is_https) {
+            // Real busybox wget on a stripped-down build either rejects
+            // HTTPS outright or emits this note before plain-text fallback.
+            // We pick the second form so the "saved" path still fires.
+            r += "wget: note: TLS certificate validation not implemented\n";
+        }
+        r += "saving to '"+basename_(abs)+"'\n";
+        // Progress line — busybox formats the bar with simple `*` chars
+        // and shows a fixed "0:00:00 ETA" since we don't model timing.
+        // The width here matches the columns commonly seen in real
+        // busybox output (32-char bar).
+        char prog[160];
+        snprintf(prog, sizeof(prog),
+                 "%-19s100%% |********************************| %5u  0:00:00 ETA\n",
+                 basename_(abs).c_str(), (unsigned)fsize);
+        r += prog;
+        r += "'"+basename_(abs)+"' saved\n";
+        return r;
+    }
 
     String ts = wgetTimestampPrefix_();
     String r;
@@ -2445,17 +2496,17 @@ String FakeShell::cmdWget_(Cmd& c) {
         // Real wget given an IP URL skips DNS entirely — no
         // "Resolving" line, and the connect line uses the bare IP
         // without the |resolved-ip| pipe form.
-        r += "Connecting to "+host_only+":80... connected.\n";
+        r += "Connecting to "+host_only+":"+port_str+"... connected.\n";
     } else {
         String resolved = hashedFakeIp_(host_only);
         r += "Resolving "+host_only+" ("+host_only+")... "+resolved+"\n";
-        r += "Connecting to "+host_only+" ("+host_only+")|"+resolved+"|:80... connected.\n";
+        r += "Connecting to "+host_only+" ("+host_only+")|"+resolved+"|:"+port_str+"... connected.\n";
     }
     r += "HTTP request sent, awaiting response... 200 OK\n";
-    r += "Length: "+String(vf?vf->size:8192)+" (8.0K) [application/octet-stream]\n";
+    r += "Length: "+String(fsize)+" (8.0K) [application/octet-stream]\n";
     r += "Saving to: '"+basename_(abs)+"'\n\n";
     r += basename_(abs)+"     100%[===================>]   8.00K  --.-KB/s    in 0s\n\n";
-    r += ts+" (12.4 MB/s) - '"+basename_(abs)+"' saved ["+String(vf?vf->size:8192)+"/"+String(vf?vf->size:8192)+"]\n\n";
+    r += ts+" (12.4 MB/s) - '"+basename_(abs)+"' saved ["+String(fsize)+"/"+String(fsize)+"]\n\n";
     return r;
 }
 
