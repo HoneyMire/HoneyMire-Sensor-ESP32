@@ -265,6 +265,15 @@ static void handle_session(ssh_session sess) {
     int attempts = 0;
     String last_user, last_pass;
     String collected_pubkeys;
+    // Cap pubkey collection so an attacker spamming `ssh -i key1 -i key2 …`
+    // can't blow up heap before the password fallback kicks in. Each
+    // captured line is "<type> <SHA256:fp> <base64>"; a single 4096-bit
+    // RSA key serializes to ~720 bytes, so 8 keys / 4 KB covers the
+    // realistic max while keeping the worst-case heap footprint bounded.
+    constexpr int    kMaxCollectedPubkeys     = 8;
+    constexpr size_t kMaxCollectedPubkeyBytes = 4 * 1024;
+    int  pubkey_count       = 0;
+    bool pubkey_cap_logged  = false;
     // Idle timer: reset on every SSH message we receive from the peer.
     // An actively-typing attacker keeps last_activity_ms fresh and is
     // never closed for "session too long".
@@ -327,8 +336,25 @@ static void handle_session(ssh_session sess) {
                     line += (fp ? fp : "");
                     line += ' ';
                     line += (b64 ? b64 : "");
-                    if (collected_pubkeys.length()) collected_pubkeys += '\n';
-                    collected_pubkeys += line;
+                    // Cap-aware append: drop the line if either bound is
+                    // crossed, but keep counting so the Serial log still
+                    // shows the attacker is spamming pubkeys. Logged once
+                    // per session so we don't flood HWCDC.
+                    bool over_cap = (pubkey_count >= kMaxCollectedPubkeys) ||
+                                    (collected_pubkeys.length() + 1 + line.length()
+                                     > kMaxCollectedPubkeyBytes);
+                    if (!over_cap) {
+                        if (collected_pubkeys.length()) collected_pubkeys += '\n';
+                        collected_pubkeys += line;
+                        pubkey_count++;
+                    } else if (!pubkey_cap_logged) {
+                        pubkey_cap_logged = true;
+                        Serial.printf("[ssh] pubkey cap hit (%d keys / %u bytes), "
+                                      "dropping further offers from user=%s\n",
+                                      kMaxCollectedPubkeys,
+                                      (unsigned)kMaxCollectedPubkeyBytes,
+                                      last_user.c_str());
+                    }
                     Serial.printf("[ssh] pubkey offered user=%s %s %s\n",
                                   last_user.c_str(), (tname ? tname : "?"), (fp ? fp : "?"));
                     if (fp)   ssh_string_free_char(fp);
