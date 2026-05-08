@@ -966,24 +966,48 @@ bool intel_report_hub(AttackEntry& e) {
 
     if (code >= 200 && code < 300) {
         e.reported_hub = true;
-        // Parse the hub's response for max_hp_local_id and bump our
-        // local next_id_ counter past any drift. The drift case in
-        // the wild: a `pio run -t uploadfs` or `esptool erase_flash`
-        // wipes LittleFS / NVS, our next_id_ resets to 1, but the
-        // DB still has rows with hp_local_id 1..N — so every
-        // subsequent ingest silently ON-CONFLICT-dedups against an
-        // old row. With max_hp_local_id returned in every 2xx,
-        // we self-heal on the very next report and future ingests
-        // land cleanly. dedup:true also surfaces in the log so the
-        // operator sees what just happened.
+        // Pick `dedup` and `max_hp_local_id` out of the hub's ~80-byte
+        // JSON response with a manual scan rather than a second
+        // JsonDocument. The request's payload doc (line 782, ~2-3 KB
+        // of attack metadata) is still alive in this scope; stacking a
+        // second JsonDocument under heap pressure caused stack/heap
+        // corruption in the wild (Guru Meditation InstructionFetchError
+        // immediately after the hub-reply printf, see field report
+        // 2026-05-08). The fields are flat scalars at known keys —
+        // a 20-line scan handles them safely with zero allocation.
+        //
+        // The drift case being recovered: a `pio run -t uploadfs` or
+        // `esptool erase_flash` wipes LittleFS / NVS, our next_id_
+        // resets to 1, but the DB still has rows with hp_local_id
+        // 1..N — so every subsequent ingest silently ON-CONFLICT-
+        // dedups against an old row. With max_hp_local_id returned in
+        // every 2xx, we self-heal on the very next report and future
+        // ingests land cleanly. `dedup:true` also surfaces in the log.
         bool dedup = false;
         uint32_t max_hp_local_id = 0;
         if (resp.length()) {
-            JsonDocument rd;
-            if (deserializeJson(rd, resp) == DeserializationError::Ok) {
-                dedup = rd["dedup"] | false;
-                if (rd["max_hp_local_id"].is<uint32_t>()) {
-                    max_hp_local_id = rd["max_hp_local_id"].as<uint32_t>();
+            // Boolean: look for `"dedup":true`. False or absent → false.
+            int di = resp.indexOf("\"dedup\"");
+            if (di >= 0) {
+                int p = di + 7;  // past the closing quote of the key
+                while (p < (int)resp.length() &&
+                       (resp[p] == ' ' || resp[p] == ':')) p++;
+                if (p + 4 <= (int)resp.length() &&
+                    resp.substring(p, p + 4) == "true") {
+                    dedup = true;
+                }
+            }
+            // Unsigned integer: look for `"max_hp_local_id":<digits>`.
+            // null or absent → leave at 0.
+            int mi = resp.indexOf("\"max_hp_local_id\"");
+            if (mi >= 0) {
+                int p = mi + 17;  // past the closing quote of the key
+                while (p < (int)resp.length() &&
+                       (resp[p] == ' ' || resp[p] == ':')) p++;
+                while (p < (int)resp.length() &&
+                       resp[p] >= '0' && resp[p] <= '9') {
+                    max_hp_local_id = max_hp_local_id * 10 + (resp[p] - '0');
+                    p++;
                 }
             }
         }
