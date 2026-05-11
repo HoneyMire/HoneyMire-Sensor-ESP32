@@ -33,6 +33,8 @@ dist/
 secrets.h
 secrets.ini
 *.local.ini
+docs/PLAN_PLAINTEXT_TRANSCRIPT.md
+docs/REMAINING_WORK.md
 
 # Web flasher staging (built in CI)
 site/
