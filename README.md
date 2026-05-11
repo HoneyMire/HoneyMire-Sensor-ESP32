@@ -18,7 +18,7 @@ bundled in.
 
 Plug an ESP32-C3 SuperMini, LilyGO T-QT Pro or ESP32-S3 N16R8 into a USB
 port and head to
-**[kast.github.io/HoneyMire](https://kast.github.io/HoneyMire/)**.
+**[honeymire.github.io/HoneyMire](https://honeymire.github.io/HoneyMire/)**.
 Click *Connect*, pick the serial port, and the latest firmware is flashed in
 seconds — no toolchain, no `pio`, no drivers beyond the stock USB-CDC. ESP
 Web Tools auto-detects the chip family and picks the matching image.
