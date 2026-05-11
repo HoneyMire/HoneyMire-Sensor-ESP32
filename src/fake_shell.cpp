@@ -6,7 +6,7 @@
 #include <cstring>
 #include <cstdlib>
 
-namespace honeyopus {
+namespace honeymire {
 
 // ------------ tunables (NEW.md "Safety Rules") ------------
 static const uint16_t MAX_COMMANDS_PER_SESSION = 500;
@@ -3072,4 +3072,4 @@ String FakeShell::commandSummary(size_t max_bytes) const {
     return out;
 }
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -2,8 +2,8 @@
 
 #include <Arduino.h>
 
-namespace honeyopus {
+namespace honeymire {
 
-void web_begin();   // start AsyncWebServer on HONEYOPUS_HTTP_PORT
+void web_begin();   // start AsyncWebServer on HONEYMIRE_HTTP_PORT
 
-} // namespace honeyopus
+} // namespace honeymire

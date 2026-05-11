@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 enum class NetMode { Boot, ConnectingSTA, OnlineSTA, FallbackAP };
 
@@ -28,4 +28,4 @@ void wifi_try_sta();
 // settling.
 uint32_t wifi_online_uptime_ms();
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -2,9 +2,9 @@
 
 #include <Arduino.h>
 
-namespace honeyopus {
+namespace honeymire {
 
-// Starts a FreeRTOS listener task on port HONEYOPUS_TELNET_PORT.
+// Starts a FreeRTOS listener task on port HONEYMIRE_TELNET_PORT.
 // It only does anything once WiFi is connected.
 void telnet_begin();
 
@@ -15,4 +15,4 @@ void telnet_begin();
 // indefinitely.
 void telnet_reap();
 
-} // namespace honeyopus
+} // namespace honeymire

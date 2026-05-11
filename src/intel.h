@@ -2,7 +2,7 @@
 
 #include "attack_log.h"
 
-namespace honeyopus {
+namespace honeymire {
 
 // Submits e to AbuseIPDB if enabled. Sets e.reported_abuseipdb on success.
 bool intel_report_abuseipdb(AttackEntry& e);
@@ -13,7 +13,7 @@ bool intel_report_otx(AttackEntry& e);
 // Submits e to DShield.org if enabled.
 bool intel_report_dshield(AttackEntry& e);
 
-// Submits e to the configured HoneyOpus Hub (docs/INGEST_PROTOCOL.md).
+// Submits e to the configured HoneyMire Hub (docs/INGEST_PROTOCOL.md).
 // Sets e.reported_hub on 2xx (or on permanent 4xx so we don't retry forever).
 bool intel_report_hub(AttackEntry& e);
 
@@ -30,4 +30,4 @@ void intel_enqueue(uint32_t attack_id);
 // in the dashboard.
 bool intel_ip_is_private(const String& ip);
 
-} // namespace honeyopus
+} // namespace honeymire

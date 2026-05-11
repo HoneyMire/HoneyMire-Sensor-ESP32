@@ -9,7 +9,7 @@
 #include <esp_heap_caps.h>
 #include <vector>
 
-namespace honeyopus {
+namespace honeymire {
 
 // In-memory GeoIP cache. Geolocation for an IP address effectively never
 // changes within a honeypot uptime, so once a free GeoIP provider tells us
@@ -219,4 +219,4 @@ bool geoip_lookup(AttackEntry& e) {
     return e.geo_resolved;
 }
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Initializes LittleFS (formats on first boot if needed) and ensures the
 // /sessions/ and /attacks/ directories exist.
@@ -35,4 +35,4 @@ std::vector<String> storage_list_dir(const char* dir, size_t limit = 0);
 // absent — that is fine but spams the console on every first-boot probe.
 bool fs_exists_silent(const char* fs_path);
 
-} // namespace honeyopus
+} // namespace honeymire

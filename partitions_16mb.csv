@@ -1,4 +1,4 @@
-# Partitions for HoneyOpus on ESP32-S3 with 16 MB flash (N16R8).
+# Partitions for HoneyMire on ESP32-S3 with 16 MB flash (N16R8).
 # Single OTA slot (factory) plus a large LittleFS area for asciinema casts
 # and JSONL event logs.
 # Name,    Type, SubType, Offset,    Size,      Flags

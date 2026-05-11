@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>HoneyOpus · Web Installer</title>
-<meta name="description" content="Flash the HoneyOpus ESP32 honeypot firmware right from your browser. Supports ESP32-C3 SuperMini, LilyGO T-QT Pro and ESP32-S3 N16R8."/>
+<title>HoneyMire · Web Installer</title>
+<meta name="description" content="Flash the HoneyMire ESP32 honeypot firmware right from your browser. Supports ESP32-C3 SuperMini, LilyGO T-QT Pro and ESP32-S3 N16R8."/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%8D%AF%3C/text%3E%3C/svg%3E"/>
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 <style>
@@ -52,7 +52,7 @@ footer a{color:#7ad9ff}
 </head>
 <body>
 <header>
-  <h1><span class="em">🍯</span>HoneyOpus</h1>
+  <h1><span class="em">🍯</span>HoneyMire</h1>
   <p class="tag">An ESP32 SSH/Telnet honeypot — installable from your browser.</p>
   <div class="badges">
     <span class="badge">Targets: <b>ESP32-C3 · ESP32-S3</b></span>
@@ -108,25 +108,25 @@ footer a{color:#7ad9ff}
 
 <section class="card">
   <h2>What is this?</h2>
-  <p>HoneyOpus is a pocket-sized honeypot that fakes a sloppy Ubuntu server on
+  <p>HoneyMire is a pocket-sized honeypot that fakes a sloppy Ubuntu server on
      ports 22 and 23. It records every attacker session as an asciinema cast,
      classifies the attack profile (Mirai, IoT loader, manual operator, …),
      geolocates the source, and can optionally report to AbuseIPDB,
-     AlienVault OTX, and a self-hosted HoneyOpus Hub.</p>
+     AlienVault OTX, and a self-hosted HoneyMire Hub.</p>
 </section>
 
 <section class="card">
   <h2>After flashing</h2>
   <ol>
     <li>The display (if your board has one) briefly shows the boot logo, then turns off.</li>
-    <li>The board comes up as a SoftAP <code>HoneyOpus-XXXXXX</code> (password
-        <code>honeyopus</code>). Connect with your phone — the captive portal
+    <li>The board comes up as a SoftAP <code>HoneyMire-XXXXXX</code> (password
+        <code>honeymire</code>). Connect with your phone — the captive portal
         opens automatically.</li>
     <li>Pick your Wi-Fi network, enter the password, hit <b>Connect</b>. The
         device reboots and joins your LAN.</li>
     <li>Browse to the IP shown on the display (or in the serial console for
         headless boards). Default dashboard login is
-        <code>admin</code> / <code>honeyopus</code> (LAN clients are auto-allowed
+        <code>admin</code> / <code>honeymire</code> (LAN clients are auto-allowed
         without auth — change the password before exposing the device).</li>
   </ol>
 </section>
@@ -165,7 +165,7 @@ function pick(card) {
   installer.hidden = false;
   hint.innerHTML = 'Selected <b>' + card.querySelector('.name').textContent +
                    '</b>. Plug the board in and click <b>Connect</b>.';
-  try { localStorage.setItem('honeyopus.board', card.dataset.board); } catch (e) {}
+  try { localStorage.setItem('honeymire.board', card.dataset.board); } catch (e) {}
 }
 
 cards.forEach(card => {
@@ -177,7 +177,7 @@ cards.forEach(card => {
 
 // Restore last pick.
 try {
-  const last = localStorage.getItem('honeyopus.board');
+  const last = localStorage.getItem('honeymire.board');
   if (last) {
     const card = document.querySelector('.board[data-board="' + last + '"]');
     if (card) pick(card);

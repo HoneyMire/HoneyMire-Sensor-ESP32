@@ -2,7 +2,7 @@
 
 #include <WiFi.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 namespace {
 
@@ -114,4 +114,4 @@ bool dns_cache_extract_host(const String& url, String& host_out) {
     return host_out.length() > 0;
 }
 
-} // namespace honeyopus
+} // namespace honeymire

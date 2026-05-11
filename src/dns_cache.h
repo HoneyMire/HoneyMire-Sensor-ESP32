@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <IPAddress.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Tiny application-level DNS cache. Wraps WiFi.hostByName with both
 // positive and negative TTLs.
@@ -37,4 +37,4 @@ bool dns_cache_resolve(const char* host, IPAddress& out);
 // Returns false if the URL doesn't look right.
 bool dns_cache_extract_host(const String& url, String& host_out);
 
-} // namespace honeyopus
+} // namespace honeymire

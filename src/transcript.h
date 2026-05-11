@@ -3,16 +3,16 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Plain-text on-device session transcript. Replaces the asciicast
 // writer (src/asciinema.{h,cpp}) on the storage path, behind the
-// HONEYOPUS_USE_TRANSCRIPT compile flag. See
+// HONEYMIRE_USE_TRANSCRIPT compile flag. See
 // docs/PLAN_PLAINTEXT_TRANSCRIPT.md for the full design rationale.
 //
-// File format ("HONEYOPUS-TRANSCRIPT/1"):
+// File format ("HONEYMIRE-TRANSCRIPT/1"):
 //
-//   HONEYOPUS-TRANSCRIPT/1
+//   HONEYMIRE-TRANSCRIPT/1
 //   session:1234
 //   proto:telnet
 //   persona:HiLinux
@@ -83,4 +83,4 @@ private:
     bool     paused_ = false;
 };
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -7,11 +7,11 @@
 #include <DNSServer.h>
 #include <WiFiClient.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 static NetMode s_mode = NetMode::Boot;
 static String s_ap_ssid;
-static String s_ap_pass = "honeyopus";
+static String s_ap_pass = "honeymire";
 static uint32_t s_last_attempt = 0;
 static uint32_t s_attempts = 0;
 static DNSServer s_dns;
@@ -186,7 +186,7 @@ static bool probe_outbound_() {
 static void start_ap_() {
     String mac = WiFi.macAddress();
     mac.replace(":", "");
-    s_ap_ssid = String("HoneyOpus-") + mac.substring(8);
+    s_ap_ssid = String("HoneyMire-") + mac.substring(8);
     WiFi.mode(WIFI_AP);
     // softAPConfig() MUST come before softAP() — calling it after has been
     // observed on certain arduino-esp32 versions to leave the AP listening
@@ -431,4 +431,4 @@ void wifi_loop() {
     }
 }
 
-} // namespace honeyopus
+} // namespace honeymire

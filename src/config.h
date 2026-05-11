@@ -13,27 +13,27 @@
 // Framework .cpp files have already #included HardwareSerial.h before
 // this header is reached, so this define only rewrites references in
 // our code — no clash with the framework's own `extern Serial0`.
-#if defined(HONEYOPUS_BOARD_KIND_S3_N16R8) && !defined(HONEYOPUS_NO_SERIAL_REMAP)
+#if defined(HONEYMIRE_BOARD_KIND_S3_N16R8) && !defined(HONEYMIRE_NO_SERIAL_REMAP)
 #  ifdef Serial
 #    undef Serial
 #  endif
 #  define Serial Serial0
 #endif
 
-namespace honeyopus {
+namespace honeymire {
 
-#ifndef HONEYOPUS_BOARD_NAME
-#define HONEYOPUS_BOARD_NAME "ESP32"
+#ifndef HONEYMIRE_BOARD_NAME
+#define HONEYMIRE_BOARD_NAME "ESP32"
 #endif
-#ifndef HONEYOPUS_HAS_PSRAM
-#define HONEYOPUS_HAS_PSRAM 0
+#ifndef HONEYMIRE_HAS_PSRAM
+#define HONEYMIRE_HAS_PSRAM 0
 #endif
 
 struct Config {
     // WiFi
     String wifi_ssid;
     String wifi_pass;
-    String hostname = "honeyopus";
+    String hostname = "honeymire";
 
     // Honeypot banners / behavior
     String telnet_banner = "Ubuntu 18.04.6 LTS";
@@ -47,15 +47,15 @@ struct Config {
     // per session even on clean disconnect) makes sustained exposure
     // marginal there. Operator can flip via /config or the serial
     // menu without a re-flash. See ESP32 stability review S1.
-#ifndef HONEYOPUS_DEFAULT_SSH_ENABLED
-#define HONEYOPUS_DEFAULT_SSH_ENABLED 1
+#ifndef HONEYMIRE_DEFAULT_SSH_ENABLED
+#define HONEYMIRE_DEFAULT_SSH_ENABLED 1
 #endif
-    bool   ssh_enabled    = (HONEYOPUS_DEFAULT_SSH_ENABLED != 0);
+    bool   ssh_enabled    = (HONEYMIRE_DEFAULT_SSH_ENABLED != 0);
 
     // Dashboard auth
     bool   dashboard_auth_enabled = false;
     String dashboard_user = "admin";
-    String dashboard_pass = "honeyopus";
+    String dashboard_pass = "honeymire";
     // When true (default), clients on RFC1918 / link-local / CGNAT
     // addresses skip the basic-auth prompt — convenient on a home LAN
     // but a privacy hazard if the device sits on an untrusted network
@@ -91,10 +91,10 @@ struct Config {
     // Intel reporting
     bool   abuseipdb_enabled = false;
     String abuseipdb_key     = "";
-    String abuseipdb_comment = "Brute-force login attempt captured by HoneyOpus on " HONEYOPUS_BOARD_NAME ".";
+    String abuseipdb_comment = "Brute-force login attempt captured by HoneyMire on " HONEYMIRE_BOARD_NAME ".";
     bool   otx_enabled       = false;
     String otx_key           = "";
-    String otx_pulse_name    = "HoneyOpus " HONEYOPUS_BOARD_NAME " SSH/Telnet Brute-force";
+    String otx_pulse_name    = "HoneyMire " HONEYMIRE_BOARD_NAME " SSH/Telnet Brute-force";
     // If set, every reboot reuses this exact pulse id instead of creating
     // a new one (the previous behavior fragmented data across many pulses
     // — one per reboot). Leave empty to fall back to the cached/created
@@ -104,9 +104,9 @@ struct Config {
     String dshield_email     = "";
     String dshield_apikey    = "";
 
-    // HoneyOpus Hub reporter — the project's own ingest endpoint, in
+    // HoneyMire Hub reporter — the project's own ingest endpoint, in
     // addition to AbuseIPDB / OTX. Spec: docs/INGEST_PROTOCOL.md
-    // (KaSt/HoneyOpusHUB). The hub aggregates this device's attacks
+    // (KaSt/HoneyMireHUB). The hub aggregates this device's attacks
     // alongside the user's other honeypots and renders them on a
     // dashboard. Token format is `hop_` + 32 base64url chars; see §2.
     bool   hub_enabled    = false;
@@ -161,4 +161,4 @@ inline bool intel_any_active(const Config& c) {
 // raw pointer, so we must hand it stable storage).
 void apply_time_config();
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -17,7 +17,7 @@
 #include <esp_heap_caps.h>
 #include <vector>
 
-namespace honeyopus {
+namespace honeymire {
 
 // mbedTLS handshake on ESP32-C3 needs roughly 30-50 KB of contiguous heap.
 // Total free heap is not enough to know — under fragmentation we can have
@@ -306,7 +306,7 @@ static String otx_create_pulse_(const Config& cfg, const AttackEntry& seed) {
     JsonDocument d;
     d["name"] = cfg.otx_pulse_name;
     d["description"] = "Live capture of brute-force login attempts against an "
-                       HONEYOPUS_BOARD_NAME " Telnet/SSH honeypot (HoneyOpus). "
+                       HONEYMIRE_BOARD_NAME " Telnet/SSH honeypot (HoneyMire). "
                        "Indicators are appended automatically as new attackers connect.";
     d["public"] = false;
     JsonArray tags = d["tags"].to<JsonArray>();
@@ -473,24 +473,24 @@ bool intel_report_otx(AttackEntry& e) {
 }
 
 // =====================================================================
-// HoneyOpus Hub reporter (docs/INGEST_PROTOCOL.md, schema "honeyopus.attack/v1")
+// HoneyMire Hub reporter (docs/INGEST_PROTOCOL.md, schema "honeymire.attack/v1")
 // =====================================================================
 
 // Per-board events-payload cap. Spec §7 caps `events` at 96 KiB total
 // (sum of `d` field lengths). The C3 has the tightest heap so we cap
 // lower there; the S3 boards run with the protocol max. Override per env.
 //
-// HONEYOPUS_HUB_CAST_MAX_KB is accepted as a backwards-compatible alias
-// of HONEYOPUS_HUB_EVENTS_MAX_KB so existing platformio.ini fragments
+// HONEYMIRE_HUB_CAST_MAX_KB is accepted as a backwards-compatible alias
+// of HONEYMIRE_HUB_EVENTS_MAX_KB so existing platformio.ini fragments
 // keep working through this protocol revision.
-#ifndef HONEYOPUS_HUB_EVENTS_MAX_KB
-#  ifdef  HONEYOPUS_HUB_CAST_MAX_KB
-#    define HONEYOPUS_HUB_EVENTS_MAX_KB HONEYOPUS_HUB_CAST_MAX_KB
+#ifndef HONEYMIRE_HUB_EVENTS_MAX_KB
+#  ifdef  HONEYMIRE_HUB_CAST_MAX_KB
+#    define HONEYMIRE_HUB_EVENTS_MAX_KB HONEYMIRE_HUB_CAST_MAX_KB
 #  else
-#    define HONEYOPUS_HUB_EVENTS_MAX_KB 96
+#    define HONEYMIRE_HUB_EVENTS_MAX_KB 96
 #  endif
 #endif
-static const size_t kHubEventsMaxBytes = (size_t)HONEYOPUS_HUB_EVENTS_MAX_KB * 1024;
+static const size_t kHubEventsMaxBytes = (size_t)HONEYMIRE_HUB_EVENTS_MAX_KB * 1024;
 // Spec §7 hard limits — the hub stops parsing past these regardless of
 // what the firmware sends.
 static const size_t kHubMaxEvents     = 2000;
@@ -511,15 +511,15 @@ static String hub_device_id_() {
 }
 
 static void hub_fill_hardware_(JsonObject hw) {
-    hw["mcu"]      = HONEYOPUS_HW_MCU;
-    hw["board"]    = HONEYOPUS_HW_BOARD;
-    hw["display"]  = HONEYOPUS_HW_DISPLAY;
+    hw["mcu"]      = HONEYMIRE_HW_MCU;
+    hw["board"]    = HONEYMIRE_HW_BOARD;
+    hw["display"]  = HONEYMIRE_HW_DISPLAY;
     hw["flash_mb"] = (uint32_t)((ESP.getFlashChipSize() + 1024 * 1024 - 1) / (1024 * 1024));
     hw["psram_kb"] = (uint32_t)(ESP.getPsramSize() / 1024);
     hw["cpu_mhz"]  = (uint32_t)getCpuFrequencyMhz();
 }
 
-// Parse one body line of a HONEYOPUS-TRANSCRIPT/1 file:
+// Parse one body line of a HONEYMIRE-TRANSCRIPT/1 file:
 //   <DIR>:"<escaped-data>"
 // where DIR is 'S' (server→client = terminal output) or 'O' (client→server
 // = user input). Maps to asciicast event semantics: S→'o', O→'i'. The
@@ -596,10 +596,10 @@ static bool hub_parse_cast_line_(const char* line, size_t len,
 // §3.4.3 recommends one event per direction-change.
 //
 // Accepts both on-disk formats produced by the recorder (selected at
-// firmware build time via HONEYOPUS_USE_TRANSCRIPT):
+// firmware build time via HONEYMIRE_USE_TRANSCRIPT):
 //   - asciicast v2  — first non-blank byte is `{`; one JSON header line
 //                     followed by `[t,"k","d"]` event lines.
-//   - HONEYOPUS-TRANSCRIPT/1 — first non-blank byte is `H`; key:value
+//   - HONEYMIRE-TRANSCRIPT/1 — first non-blank byte is `H`; key:value
 //                     header lines, blank-line separator, then
 //                     `S:"…"` / `O:"…"` body lines.
 // The wire-format `events[]` shape is identical regardless of source so
@@ -780,11 +780,11 @@ bool intel_report_hub(AttackEntry& e) {
 
     // Build payload --------------------------------------------------------
     JsonDocument doc;
-    doc["schema"] = "honeyopus.attack/v1";
+    doc["schema"] = "honeymire.attack/v1";
 
     JsonObject hp = doc["honeypot"].to<JsonObject>();
     hp["device_id"]        = hub_device_id_();
-    hp["firmware_version"] = HONEYOPUS_VERSION;
+    hp["firmware_version"] = HONEYMIRE_VERSION;
     hp["firmware_build"]   = __DATE__ " " __TIME__;
     hp["uptime_s"]         = (uint32_t)(millis() / 1000);
     hub_fill_hardware_(hp["hardware"].to<JsonObject>());
@@ -1207,4 +1207,4 @@ void intel_enqueue(uint32_t id) {
     xQueueSend(s_q, &id, 0);
 }
 
-} // namespace honeyopus
+} // namespace honeymire

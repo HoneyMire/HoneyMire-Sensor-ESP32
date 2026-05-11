@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-SENTINEL = "// HoneyOpus: null-check malloc patch v3\n"
+SENTINEL = "// HoneyMire: null-check malloc patch v3\n"
 
 
 # Minimum patch coverage we expect on a clean source. If any of these
@@ -182,11 +182,11 @@ def main():
             continue
         found_any = True
         if patched:
-            print(f"[honeyopus] patched {path} "
+            print(f"[honeymire] patched {path} "
                   f"(malloc_guards={malloc_n} static_guards={static_n} "
                   f"recved={recved_n})")
         else:
-            print(f"[honeyopus] {path} already patched "
+            print(f"[honeymire] {path} already patched "
                   f"(malloc_guards={malloc_n} static_guards={static_n} "
                   f"recved={recved_n})")
         # Verify coverage. A library bump that drops or rewrites any of
@@ -203,7 +203,7 @@ def main():
             problems.append(
                 f"_tcp_recved_api clamp: {recved_n}, expected >={MIN_RECVED_PATCHES}")
         if problems:
-            print("[honeyopus] AsyncTCP patch coverage check FAILED:",
+            print("[honeymire] AsyncTCP patch coverage check FAILED:",
                   file=sys.stderr)
             for p in problems:
                 print(f"    - {p}", file=sys.stderr)
@@ -211,7 +211,7 @@ def main():
                   "scripts/patch_asynctcp.py", file=sys.stderr)
             sys.exit(1)
     if not found_any:
-        print("[honeyopus] AsyncTCP source not found in .pio/libdeps — "
+        print("[honeymire] AsyncTCP source not found in .pio/libdeps — "
               "first build will retry once the library is downloaded.")
 
 

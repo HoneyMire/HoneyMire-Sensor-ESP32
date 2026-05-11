@@ -1,7 +1,7 @@
 #include "telnet_persona.h"
 #include <esp_random.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 static const PersonaProfile profiles[] = {
     {
@@ -94,4 +94,4 @@ const char* telnet_persona_name(TelnetPersona p) {
     }
 }
 
-} // namespace honeyopus
+} // namespace honeymire

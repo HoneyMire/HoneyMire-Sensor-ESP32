@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Asciicast v2 writer: https://docs.asciinema.org/manual/asciicast/v2/
 // Header is the first line as a single-line JSON object, then events follow:
@@ -12,9 +12,9 @@ namespace honeyopus {
 //
 // DEPRECATED post-TX (2026-05-08). The on-device session storage path now
 // dispatches via src/recorder.h to the plain-text Transcript writer when
-// the firmware is built with HONEYOPUS_USE_TRANSCRIPT defined; default
+// the firmware is built with HONEYMIRE_USE_TRANSCRIPT defined; default
 // builds still instantiate Asciinema, so this class stays in the tree
-// for one soak cycle. After HONEYOPUS_USE_TRANSCRIPT is flipped
+// for one soak cycle. After HONEYMIRE_USE_TRANSCRIPT is flipped
 // default-on in platformio.ini and a release ships, the class can be
 // removed along with src/asciinema.cpp; the read-side dual-format
 // parsers (intel.cpp::hub_build_events_, web_dashboard.cpp::send_cast,
@@ -62,4 +62,4 @@ private:
     bool     paused_ = false;
 };
 
-} // namespace honeyopus
+} // namespace honeymire

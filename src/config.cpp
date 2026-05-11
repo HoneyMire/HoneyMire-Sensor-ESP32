@@ -2,11 +2,11 @@
 
 #include <esp_sntp.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 ConfigStore g_config;
 
-static const char* NS = "honeyopus";
+static const char* NS = "honeymire";
 
 // Stable, heap-owned, NEVER FREED storage for the NTP server names — see the
 // comment on apply_time_config() in config.h.
@@ -167,4 +167,4 @@ void ConfigStore::reset() {
     save();
 }
 
-} // namespace honeyopus
+} // namespace honeymire

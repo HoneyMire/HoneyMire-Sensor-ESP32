@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Persisted restart-reason tracking. Every deliberate ESP.restart()
 // site goes through restart_with(): we stamp a short reason label and
@@ -63,4 +63,4 @@ void breadcrumb_log_on_boot();
 void summary_json(String& out);
 
 } // namespace restart
-} // namespace honeyopus
+} // namespace honeymire

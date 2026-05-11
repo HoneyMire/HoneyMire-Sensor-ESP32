@@ -21,14 +21,14 @@
 #include <new>   // std::nothrow for fault-tolerant heap allocations
 #include <time.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 static const uint16_t TN_COLS = 80;
 static const uint16_t TN_ROWS = 24;
-#ifndef HONEYOPUS_TN_MAX
-#define HONEYOPUS_TN_MAX 3
+#ifndef HONEYMIRE_TN_MAX
+#define HONEYMIRE_TN_MAX 3
 #endif
-static const uint8_t  TN_MAX_CONCURRENT = HONEYOPUS_TN_MAX; // per-board cap (see platformio.ini)
+static const uint8_t  TN_MAX_CONCURRENT = HONEYMIRE_TN_MAX; // per-board cap (see platformio.ini)
 
 // Per-line input cap (TR-1). Bots routinely paste chained one-liners
 // > 256 chars; the prior 256-byte cap silently truncated everything
@@ -812,11 +812,11 @@ void telnet_begin() {
         // ArduinoJson StaticJsonDocs, and recursive command handlers.
         xTaskCreate(tn_worker_task, "tn_fin", 8192, nullptr, 1, nullptr);
     }
-    s_server = new AsyncServer(HONEYOPUS_TELNET_PORT);
+    s_server = new AsyncServer(HONEYMIRE_TELNET_PORT);
     s_server->onClient(tn_on_client, nullptr);
     s_server->begin();
     Serial.printf("[telnet] AsyncTCP listener on port %u (max %u concurrent)\n",
-                  (unsigned)HONEYOPUS_TELNET_PORT, (unsigned)TN_MAX_CONCURRENT);
+                  (unsigned)HONEYMIRE_TELNET_PORT, (unsigned)TN_MAX_CONCURRENT);
 }
 
 void telnet_reap() {
@@ -932,4 +932,4 @@ void telnet_reap() {
     zombie_sweep_(now);
 }
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -7,7 +7,7 @@
 #include <WiFi.h>
 #include <cstring>
 
-namespace honeyopus {
+namespace honeymire {
 
 enum class State { Idle, Menu, Reading };
 
@@ -18,14 +18,14 @@ static String s_pending_field; // when reading a value
 static void println_banner_() {
     Serial.println();
     Serial.println("============================================");
-    Serial.println("  HoneyOpus serial menu");
+    Serial.println("  HoneyMire serial menu");
     Serial.println("  Type ? or help for commands");
     Serial.println("============================================");
 }
 
 static void show_menu_() {
     Serial.println();
-    Serial.println("HoneyOpus :: menu");
+    Serial.println("HoneyMire :: menu");
     Serial.println("  1) Set WiFi SSID");
     Serial.println("  2) Set WiFi password");
     Serial.println("  3) Set hostname");
@@ -42,8 +42,8 @@ static void show_menu_() {
     Serial.println("  o) Set AlienVault OTX API key");
     Serial.println("  d) Set DShield email");
     Serial.println("  p) Set DShield API key");
-    Serial.println("  u) Set HoneyOpus Hub URL");
-    Serial.println("  b) Set HoneyOpus Hub token");
+    Serial.println("  u) Set HoneyMire Hub URL");
+    Serial.println("  b) Set HoneyMire Hub token");
     Serial.println("  q) Quit menu");
     Serial.print("> ");
 }
@@ -119,7 +119,7 @@ static void apply_pending_(const String& val) {
     auto& c = g_config.get();
     if (s_pending_field == "wifi_ssid")     c.wifi_ssid = val;
     else if (s_pending_field == "wifi_pass") c.wifi_pass = val;
-    else if (s_pending_field == "hostname")  c.hostname  = val.length() ? val : String("honeyopus");
+    else if (s_pending_field == "hostname")  c.hostname  = val.length() ? val : String("honeymire");
     else if (s_pending_field == "abuseipdb_key") {
         c.abuseipdb_key = val;
         c.abuseipdb_enabled = val.length() > 0;
@@ -279,4 +279,4 @@ void serial_menu_loop() {
     }
 }
 
-} // namespace honeyopus
+} // namespace honeymire

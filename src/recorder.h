@@ -2,7 +2,7 @@
 
 // Compile-time selector between the legacy asciicast writer and the
 // plain-text Transcript writer. Default-OFF: callers see Asciinema
-// exactly as before. Define HONEYOPUS_USE_TRANSCRIPT in the build
+// exactly as before. Define HONEYMIRE_USE_TRANSCRIPT in the build
 // flags to switch the on-disk format. See
 // docs/PLAN_PLAINTEXT_TRANSCRIPT.md for the full migration plan.
 //
@@ -16,15 +16,15 @@
 #include <Arduino.h>
 #include <time.h>
 
-#if HONEYOPUS_USE_TRANSCRIPT
+#if HONEYMIRE_USE_TRANSCRIPT
   #include "transcript.h"
 #else
   #include "asciinema.h"
 #endif
 
-namespace honeyopus {
+namespace honeymire {
 
-#if HONEYOPUS_USE_TRANSCRIPT
+#if HONEYMIRE_USE_TRANSCRIPT
 using SessionRecorder = Transcript;
 #else
 using SessionRecorder = Asciinema;
@@ -49,7 +49,7 @@ inline bool recorder_begin(SessionRecorder& r,
                            bool authenticated,
                            const String& src_ip,
                            uint16_t src_port) {
-#if HONEYOPUS_USE_TRANSCRIPT
+#if HONEYMIRE_USE_TRANSCRIPT
     (void)title;
     (void)shell_cmd;
     TranscriptHeader h;
@@ -85,4 +85,4 @@ inline bool recorder_begin(SessionRecorder& r,
 #endif
 }
 
-} // namespace honeyopus
+} // namespace honeymire

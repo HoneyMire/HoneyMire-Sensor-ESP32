@@ -1,4 +1,4 @@
-# Custom partitions for HoneyOpus on ESP32-C3 (4MB flash, single OTA slot to make
+# Custom partitions for HoneyMire on ESP32-C3 (4MB flash, single OTA slot to make
 # room for the libssh-enabled app and a generous LittleFS area for asciinema casts).
 # Name,   Type, SubType, Offset,    Size,      Flags
 nvs,      data, nvs,     0x9000,    0x6000,

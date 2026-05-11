@@ -2,7 +2,7 @@
 
 #include <time.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 bool Asciinema::begin(const String& path,
                       uint16_t cols,
@@ -122,4 +122,4 @@ void Asciinema::close() {
     }
 }
 
-} // namespace honeyopus
+} // namespace honeymire

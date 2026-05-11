@@ -1,7 +1,7 @@
 #include "attack_classifier.h"
 #include "intel.h"
 
-namespace honeyopus {
+namespace honeymire {
 
 // Compact subset of the original Mirai bruteforce dictionary plus a few common
 // IoT-botnet variants (Gafgyt, Hajime, Bashlite). High-signal entries only.
@@ -128,4 +128,4 @@ ProfileVisual profile_visual(const String& label) {
     return {"\xE2\x9D\x93", "Unknown"};                                                  // ❓
 }
 
-} // namespace honeyopus
+} // namespace honeymire

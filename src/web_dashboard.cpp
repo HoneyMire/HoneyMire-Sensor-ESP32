@@ -17,16 +17,16 @@
 #include <vector>
 #include <functional>
 
-namespace honeyopus {
+namespace honeymire {
 
-static AsyncWebServer s_server(HONEYOPUS_HTTP_PORT);
+static AsyncWebServer s_server(HONEYMIRE_HTTP_PORT);
 
 // ------------------- Page assets (embedded) -------------------
 
 static const char PAGE_HEAD[] PROGMEM = R"HTML(
 <!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>HoneyOpus</title>
+<title>HoneyMire</title>
 <style>
 :root{--bg:#0e0f13;--fg:#e7e9ee;--mut:#9098a8;--card:#171a21;--acc:#f0b429;--bad:#e94560;--good:#41d693;--bord:#262a35}
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,sans-serif;background:var(--bg);color:var(--fg)}
@@ -92,7 +92,7 @@ code{font-family:ui-monospace,Menlo,monospace;background:#0c0d12;padding:2px 5px
 
 static const char PAGE_NAV[] PROGMEM = R"HTML(
 <header>
-  <h1><a href="/" style="color:inherit;text-decoration:none">&#127855; HoneyOpus</a></h1>
+  <h1><a href="/" style="color:inherit;text-decoration:none">&#127855; HoneyMire</a></h1>
   <nav>
     <a href="/" id="navHome">Dashboard</a>
     <a href="/config" id="navCfg">Config</a>
@@ -112,7 +112,7 @@ static bool authed(AsyncWebServerRequest* req) {
     if (!c.dashboard_auth_enabled) return true;
     if (c.dashboard_user.length() == 0) return true;
     // Skip basic-auth for clients on the local network — owners poking at
-    // HoneyOpus from their LAN shouldn't have to enter credentials, and the
+    // HoneyMire from their LAN shouldn't have to enter credentials, and the
     // browser's auth dialog also breaks <a download> + asciinema fetch().
     // Disable dashboard_lan_bypass on untrusted LANs (campus/conference
     // Wi-Fi, hotel networks). See ESP32 stability review WEB2.
@@ -244,7 +244,7 @@ static bool web_heap_ok_(AsyncWebServerRequest* req, const char* tag) {
                       tag, (unsigned)free_heap, (unsigned)largest,
                       (unsigned)kWebMinHeap, (unsigned)kWebMinLargestBlk);
         auto* r = req->beginResponse(503, "text/plain",
-            "HoneyOpus is low on RAM, please retry in a few seconds.\n");
+            "HoneyMire is low on RAM, please retry in a few seconds.\n");
         if (r) {
             r->addHeader("Retry-After", "5");
             req->send(r);
@@ -291,7 +291,7 @@ static void send_dashboard(AsyncWebServerRequest* req) {
     if (ssh_enabled && !ssh_running) {
         String s;
         s.reserve(420);
-        s += F("<div class='card' style='border-left:4px solid #f0b429'><b>HoneyOpus is still initializing.</b> ");
+        s += F("<div class='card' style='border-left:4px solid #f0b429'><b>HoneyMire is still initializing.</b> ");
         s += ssh_hostkey_ready()
             ? F("SSH host key ready, the listener is binding. ")
             : F("Generating the SSH host key on first boot &mdash; this can take up to ~30 s. ");
@@ -430,8 +430,8 @@ static void send_dashboard(AsyncWebServerRequest* req) {
                 ? F("<span class='repicon' title='DShield reported' aria-label='DShield reported'>&#x1F30A;</span>")
                 : F("<span class='repicon off' title='DShield not reported' aria-label='DShield not reported'>&#x1F30A;</span>");
             row += e.reported_hub
-                ? F("<span class='repicon' title='HoneyOpus Hub reported' aria-label='Hub reported'>&#x1F36F;</span>")
-                : F("<span class='repicon off' title='HoneyOpus Hub not reported' aria-label='Hub not reported'>&#x1F36F;</span>");
+                ? F("<span class='repicon' title='HoneyMire Hub reported' aria-label='Hub reported'>&#x1F36F;</span>")
+                : F("<span class='repicon off' title='HoneyMire Hub not reported' aria-label='Hub not reported'>&#x1F36F;</span>");
             row += "</td></tr>";
             pg->segs.push_back(std::move(row));
             return true;
@@ -443,7 +443,7 @@ static void send_dashboard(AsyncWebServerRequest* req) {
     {
         char foot[256];
         snprintf(foot, sizeof(foot),
-            "<p class='meta'>HoneyOpus on " HONEYOPUS_BOARD_NAME " · IP %s · uptime %us · Telnet %s · SSH %s</p>",
+            "<p class='meta'>HoneyMire on " HONEYMIRE_BOARD_NAME " · IP %s · uptime %us · Telnet %s · SSH %s</p>",
             wifi_ip_string().c_str(),
             (unsigned)(millis() / 1000),
             g_config.get().telnet_enabled ? "on" : "off",
@@ -564,13 +564,13 @@ static void send_config_page(AsyncWebServerRequest* req) {
     checkbox("DShield", "dshield_enabled", c.dshield_enabled);
     field("DShield email", "dshield_email", c.dshield_email, "email");
     field("DShield API key", "dshield_apikey", c.dshield_apikey, "password");
-    checkbox("HoneyOpus Hub", "hub_enabled", c.hub_enabled);
+    checkbox("HoneyMire Hub", "hub_enabled", c.hub_enabled);
     field("Hub URL (origin only, no path)", "hub_url", c.hub_url);
     field("Hub token (hop_…)", "hub_token", c.hub_token, "password");
     addF(F("<p class='meta' style='grid-column:1/3;margin:-4px 0 0'>"
            "Attacks coming from LAN/private IPs are never reported to AbuseIPDB, OTX, or DShield. "
            "The Hub <b>does</b> receive LAN attacks (idempotent on attack id). "
-           "See <code>docs/INGEST_PROTOCOL.md</code> in the HoneyOpusHUB repo.</p>"));
+           "See <code>docs/INGEST_PROTOCOL.md</code> in the HoneyMireHUB repo.</p>"));
     sec_close();
 
     sec_open("\xE2\x8F\xB0 Time &amp; NTP", false);
@@ -841,8 +841,8 @@ static void send_play_page(AsyncWebServerRequest* req) {
              "if(c)c.innerHTML='<p style=\"color:#e94560\">Player error: '"
              "+(ev.reason&&ev.reason.message?ev.reason.message:String(ev.reason))+'</p>';"
              "});");
-    // transcriptToCast — port of HoneyOpusHUB src/lib/cast.ts::eventsToCastV2.
-    // Input: full body of a HONEYOPUS-TRANSCRIPT/1 file.
+    // transcriptToCast — port of HoneyMireHUB src/lib/cast.ts::eventsToCastV2.
+    // Input: full body of a HONEYMIRE-TRANSCRIPT/1 file.
     // Output: an asciicast v2 string ready for AsciinemaPlayer.create.
     // Synthetic timings match the hub: T_INITIAL_OUT=60, T_OUT=30,
     // T_INPUT_PAUSE=350, T_AFTER_INPUT=40, T_TYPING_CHAR=70, T_NEWLINE=90 ms.
@@ -852,7 +852,7 @@ static void send_play_page(AsyncWebServerRequest* req) {
     s->print("function transcriptToCast(txt){"
              "var lines=txt.split('\\n');"
              "var idx=0;"
-             "if(lines[0]&&lines[0].indexOf('HONEYOPUS-TRANSCRIPT/')===0)idx=1;"
+             "if(lines[0]&&lines[0].indexOf('HONEYMIRE-TRANSCRIPT/')===0)idx=1;"
              "var hdr={},bodyStart=-1;"
              "for(;idx<lines.length;idx++){"
              "if(lines[idx]===''){bodyStart=idx+1;break;}"
@@ -914,7 +914,7 @@ static void send_play_page(AsyncWebServerRequest* req) {
     //         does NOT record per-char echo because that would produce a
     //         useless i,o,i,o,… alternation). The forensic i/o split is
     //         preserved on the hub side via attack.session.events[].
-    //   'H' → HONEYOPUS-TRANSCRIPT/1: reconstruct an asciicast v2 string
+    //   'H' → HONEYMIRE-TRANSCRIPT/1: reconstruct an asciicast v2 string
     //         in-browser via transcriptToCast.
     s->printf("var cont=document.getElementById('player');"
               "fetch('/cast?id=%u',{credentials:'same-origin',cache:'no-store'})"
@@ -941,10 +941,10 @@ static void send_play_page(AsyncWebServerRequest* req) {
     req->send(s);
 }
 
-// Build an asciicast v2 byte stream from a HONEYOPUS-TRANSCRIPT/1 file,
+// Build an asciicast v2 byte stream from a HONEYMIRE-TRANSCRIPT/1 file,
 // appending one segment per logical event into `segs`. Mirrors the JS
 // algorithm in transcriptToCast() (see send_play_page) and the
-// source-of-truth HoneyOpusHUB/src/lib/cast.ts::eventsToCastV2 — same
+// source-of-truth HoneyMireHUB/src/lib/cast.ts::eventsToCastV2 — same
 // constants, same CR/LF/CRLF coalescing, same lastWasInput pacing.
 //
 // The transcript body is already strict-ASCII JSON-escaped (per
@@ -987,8 +987,8 @@ static bool build_cast_from_transcript_(const String& path,
         size_t off;
         while (!header_done && read_line(off)) {
             if (!seen_magic) {
-                if (off < strlen("HONEYOPUS-TRANSCRIPT/") ||
-                    strncmp(lbuf, "HONEYOPUS-TRANSCRIPT/", strlen("HONEYOPUS-TRANSCRIPT/")) != 0) {
+                if (off < strlen("HONEYMIRE-TRANSCRIPT/") ||
+                    strncmp(lbuf, "HONEYMIRE-TRANSCRIPT/", strlen("HONEYMIRE-TRANSCRIPT/")) != 0) {
                     f.close(); return false;
                 }
                 seen_magic = true;
@@ -1129,7 +1129,7 @@ static void send_cast(AsyncWebServerRequest* req) {
     //   '{' → legacy asciicast v2: stream verbatim from LittleFS via
     //         the framework's lwIP-friendly file responder. No body
     //         String → no OOM hazard regardless of file size.
-    //   'H' → HONEYOPUS-TRANSCRIPT/1: synthesise an asciicast v2
+    //   'H' → HONEYMIRE-TRANSCRIPT/1: synthesise an asciicast v2
     //         stream on the fly so `asciinema play` and other CLI
     //         consumers keep working without round-tripping through
     //         the player JS.
@@ -1371,7 +1371,7 @@ static void api_health(AsyncWebServerRequest* req) {
 // -------- Captive portal: setup page --------
 static const char PORTAL_HTML[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>HoneyOpus setup</title>
+<title>HoneyMire setup</title>
 <style>
 body{margin:0;background:#0e0f13;color:#e7e9ee;font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,sans-serif}
 main{max-width:480px;margin:24px auto;padding:18px}
@@ -1389,7 +1389,7 @@ ul{list-style:none;margin:0;padding:0;border:1px solid #262a35;border-radius:6px
 .bar{height:6px;background:#262a35;border-radius:3px;overflow:hidden;margin-top:4px}
 .bar>span{display:block;height:100%;background:#41d693}
 </style></head><body><main>
-<h1>&#127855; HoneyOpus setup</h1>
+<h1>&#127855; HoneyMire setup</h1>
 <div class="card">
   <p class="meta">Pick a network or type an SSID, then enter the password.</p>
   <ul id="aplist" class="aplist"><li class="meta">scanning…</li></ul>
@@ -1398,11 +1398,11 @@ ul{list-style:none;margin:0;padding:0;border:1px solid #262a35;border-radius:6px
   <form method="POST" action="/portal/save">
     <label>SSID</label><input name="wifi_ssid" id="ssid" required>
     <label>Password</label><input name="wifi_pass" id="pass" type="password">
-    <label>Hostname</label><input name="hostname" value="honeyopus">
+    <label>Hostname</label><input name="hostname" value="honeymire">
     <button type="submit">Connect</button>
   </form>
 </div>
-<div class="card meta">After saving, HoneyOpus will reboot and join your network. Find it via the IP shown on the OLED, or http://honeyopus.local/.</div>
+<div class="card meta">After saving, HoneyMire will reboot and join your network. Find it via the IP shown on the OLED, or http://honeymire.local/.</div>
 </main>
 <script>
 function refresh(){fetch('/api/scan').then(r=>r.json()).then(j=>{
@@ -1435,7 +1435,7 @@ static void portal_save(AsyncWebServerRequest* req) {
     String body = "<!doctype html><meta charset='utf-8'><title>Saved</title>"
                   "<body style='font-family:sans-serif;background:#0e0f13;color:#e7e9ee;padding:24px'>"
                   "<h2 style='color:#f0b429'>Saved</h2>"
-                  "<p>HoneyOpus is rebooting and joining <b>" + html_escape(c.wifi_ssid) +
+                  "<p>HoneyMire is rebooting and joining <b>" + html_escape(c.wifi_ssid) +
                   "</b>. Reconnect to your normal network and look for it on the LAN.</p></body>";
     req->send(200, "text/html; charset=utf-8", body);
     req->onDisconnect([](){
@@ -1503,4 +1503,4 @@ void web_begin() {
                   WiFi.softAPIP().toString().c_str());
 }
 
-} // namespace honeyopus
+} // namespace honeymire

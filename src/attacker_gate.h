@@ -5,7 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Tiny ring of recently-seen attacker IPs used to slam the door on repeat
 // connections from the same source. The honeypot's job is to capture
@@ -88,4 +88,4 @@ private:
 
 extern AttackerGate g_gate;
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -1,6 +1,6 @@
 #include "attacker_gate.h"
 
-namespace honeyopus {
+namespace honeymire {
 
 AttackerGate g_gate;
 
@@ -34,4 +34,4 @@ void AttackerGate::touch(const String& ip) {
     oldest->last_ms = now;
 }
 
-} // namespace honeyopus
+} // namespace honeymire

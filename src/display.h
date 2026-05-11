@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 enum class AttackKind { None, Telnet, SSH };
 
@@ -48,4 +48,4 @@ private:
 
 extern Display g_display;
 
-} // namespace honeyopus
+} // namespace honeymire

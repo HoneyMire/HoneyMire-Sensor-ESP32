@@ -9,7 +9,7 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 AttackLog g_attack_log;
 
@@ -425,4 +425,4 @@ void AttackLog::clearAll() {
     }
 }
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -1,4 +1,4 @@
-# HoneyOpus 🍯
+# HoneyMire 🍯
 
 A pocket-sized **Telnet + SSH honeypot** for ESP32 boards (C3 SuperMini with
 the built-in 0.42" OLED, LilyGO T-QT Pro with a 128×128 colour IPS, or a
@@ -6,7 +6,7 @@ headless S3-N16R8 module). Records every captured session as an
 [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/), classifies the
 attacker (Mirai bot, IoT loader, manual operator, …), geolocates them, and
 optionally submits the IP to **AbuseIPDB**, **AlienVault OTX**, **DShield** and a
-self-hosted **HoneyOpus Hub** in the
+self-hosted **HoneyMire Hub** in the
 background. A web dashboard, captive-portal Wi-Fi setup, and serial CLI are
 bundled in.
 
@@ -18,7 +18,7 @@ bundled in.
 
 Plug an ESP32-C3 SuperMini, LilyGO T-QT Pro or ESP32-S3 N16R8 into a USB
 port and head to
-**[kast.github.io/HoneyOpus](https://kast.github.io/HoneyOpus/)**.
+**[kast.github.io/HoneyMire](https://kast.github.io/HoneyMire/)**.
 Click *Connect*, pick the serial port, and the latest firmware is flashed in
 seconds — no toolchain, no `pio`, no drivers beyond the stock USB-CDC. ESP
 Web Tools auto-detects the chip family and picks the matching image.
@@ -28,7 +28,7 @@ works in Chrome, Edge and Opera on a desktop computer.
 
 ## Hardware
 
-HoneyOpus targets three boards out of the box. Pick one and PlatformIO will
+HoneyMire targets three boards out of the box. Pick one and PlatformIO will
 wire up the right display driver, partition table and concurrency caps.
 
 | Build env (`-e`) | Chip | Flash / RAM / PSRAM | Display | Telnet cap | Notes |
@@ -57,14 +57,14 @@ boot reuses the stored key.
 
 ## First boot
 
-1. The OLED briefly shows the **HoneyOpus boot logo** then turns off.
+1. The OLED briefly shows the **HoneyMire boot logo** then turns off.
 2. With no Wi-Fi credentials saved, the board comes up as a SoftAP named
-   **`HoneyOpus-XXXXXX`** (password `honeyopus`). The OLED shows the SSID and
+   **`HoneyMire-XXXXXX`** (password `honeymire`). The OLED shows the SSID and
    `192.168.4.1`.
 3. Connect to the AP — your phone's captive-portal probe will pop the setup
    page automatically; if not, browse to `http://192.168.4.1/portal`.
 4. Pick your network from the live scan, enter the password, hit **Connect**.
-   HoneyOpus reboots and joins your LAN.
+   HoneyMire reboots and joins your LAN.
 
 ## Wi-Fi via the serial menu
 
@@ -72,7 +72,7 @@ Open the serial monitor at 115200 baud, press <kbd>m</kbd> (or <kbd>?</kbd>),
 and you'll see:
 
 ```
-HoneyOpus :: menu
+HoneyMire :: menu
   1) Set WiFi SSID
   2) Set WiFi password
   3) Set hostname
@@ -89,8 +89,8 @@ HoneyOpus :: menu
   o) Set AlienVault OTX API key
   d) Set DShield email
   p) Set DShield API key
-  u) Set HoneyOpus Hub URL
-  b) Set HoneyOpus Hub token
+  u) Set HoneyMire Hub URL
+  b) Set HoneyMire Hub token
 ```
 
 ## OLED behaviour
@@ -125,7 +125,7 @@ Once associated, browse to `http://<board-ip>/`.
 * **Sessions** — flat list of every `.cast` on flash.
 * **`/api/attacks`** — JSON feed of the attack log, suitable for plumbing.
 
-Default dashboard auth is **`admin` / `honeyopus`** — change it in *Config*
+Default dashboard auth is **`admin` / `honeymire`** — change it in *Config*
 after first boot. Authentication is **automatically bypassed for clients on
 the local network** so you don't get prompted at home; remote clients always
 need to authenticate.
@@ -164,7 +164,7 @@ never blocked. Each captured attack triggers:
 4. **DShield** — submissions to [dshield.org](https://dshield.org/), the
    crowd-sourced Internet intrusion detection system by SANS Institute.
    Requires a registered DShield account and API key.
-5. **HoneyOpus Hub** — the project's own ingest endpoint for users running
+5. **HoneyMire Hub** — the project's own ingest endpoint for users running
    their own dashboard. Each attack is POSTed once (idempotent on
    `(token, attack.id)`) to `<hub_url>/api/v1/ingest` as a single JSON
    document containing the full session metadata, geo, classification,
@@ -175,8 +175,8 @@ never blocked. Each captured attack triggers:
    *Hub URL* and *Hub token* in *Config*. Unlike AbuseIPDB/OTX/DShield, the
    Hub **does** receive LAN attacks (so you can validate your setup).
    Token format is `hop_` + 32 base64url chars; see
-   [`docs/INGEST_PROTOCOL.md`](https://github.com/KaSt/HoneyOpusHUB/blob/main/docs/INGEST_PROTOCOL.md)
-   in the HoneyOpusHUB repo for the wire contract.
+   [`docs/INGEST_PROTOCOL.md`](https://github.com/KaSt/HoneyMireHUB/blob/main/docs/INGEST_PROTOCOL.md)
+   in the HoneyMireHUB repo for the wire contract.
 
 The first four are off by default. Enable them in *Config* and paste your
 API keys. **Attacks coming from LAN/private IPs are never reported** to
@@ -189,7 +189,7 @@ on LittleFS. The dashboard player streams the file directly; the CLI
 equivalent on a workstation is:
 
 ```sh
-curl -u admin:honeyopus -O http://<board-ip>/cast?id=42
+curl -u admin:honeymire -O http://<board-ip>/cast?id=42
 asciinema play 42.cast
 ```
 
@@ -258,7 +258,7 @@ src/
   telnet_honeypot.{h,cpp}
   ssh_honeypot.{h,cpp}    libssh-esp32 server
   geoip.{h,cpp}
-  intel.{h,cpp}           AbuseIPDB + OTX + DShield + HoneyOpus Hub reporters (background task)
+  intel.{h,cpp}           AbuseIPDB + OTX + DShield + HoneyMire Hub reporters (background task)
   wifi_manager.{h,cpp}    STA + SoftAP fallback + DNS hijack
   serial_menu.{h,cpp}
   web_dashboard.{h,cpp}   AsyncWebServer + captive portal + web installer page

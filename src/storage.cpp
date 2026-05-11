@@ -6,7 +6,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 bool fs_exists_silent(const char* fs_path) {
     String vfs = String("/littlefs") + fs_path;
@@ -143,4 +143,4 @@ size_t storage_clear_history() {
     return removed;
 }
 
-} // namespace honeyopus
+} // namespace honeymire

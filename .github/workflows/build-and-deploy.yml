@@ -86,10 +86,10 @@ jobs:
             local out="$1" img="$2" family="$3"
             cat > "site/${out}" <<JSON
           {
-            "name": "HoneyOpus",
+            "name": "HoneyMire",
             "version": "${VERSION}",
             "build_date": "${BUILD_DATE}",
-            "home_assistant_domain": "honeyopus",
+            "home_assistant_domain": "honeymire",
             "new_install_prompt_erase": true,
             "builds": [
               {
@@ -109,10 +109,10 @@ jobs:
           # Combined manifest kept for backwards-compat / direct linking.
           cat > site/manifest.json <<JSON
           {
-            "name": "HoneyOpus",
+            "name": "HoneyMire",
             "version": "${VERSION}",
             "build_date": "${BUILD_DATE}",
-            "home_assistant_domain": "honeyopus",
+            "home_assistant_domain": "honeymire",
             "new_install_prompt_erase": true,
             "builds": [
               {
@@ -147,7 +147,7 @@ jobs:
       - name: Upload firmware as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: honeyopus-firmware-${{ github.sha }}
+          name: honeymire-firmware-${{ github.sha }}
           path: |
             site/firmware-*.bin
             site/manifest.json

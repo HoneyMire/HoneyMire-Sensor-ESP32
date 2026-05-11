@@ -1,4 +1,4 @@
-# HoneyOpus ESP32 Stability Code Review
+# HoneyMire ESP32 Stability Code Review
 
 Review date: 2026-05-06
 
@@ -8,7 +8,7 @@ The tree was already dirty before this file was added. Findings below reference 
 
 ## Executive Summary
 
-HoneyOpus has accumulated several good defensive changes: heap health logging, a global `new_handler`, per-board concurrency caps, AsyncTCP WDT disable flags, an AsyncTCP patch script, a telnet finalizer task, a persister task for the attack log, and several heap gates before TLS/reporting work. Those are directionally correct.
+HoneyMire has accumulated several good defensive changes: heap health logging, a global `new_handler`, per-board concurrency caps, AsyncTCP WDT disable flags, an AsyncTCP patch script, a telnet finalizer task, a persister task for the attack log, and several heap gates before TLS/reporting work. Those are directionally correct.
 
 The remaining reliability problem is that the firmware still performs blocking, heap-heavy, or lifecycle-sensitive work from places that must stay quick:
 

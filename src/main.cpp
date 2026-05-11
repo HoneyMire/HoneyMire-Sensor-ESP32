@@ -1,4 +1,4 @@
-// HoneyOpus — multi-board ESP32 Telnet/SSH honeypot with optional OLED/TFT
+// HoneyMire — multi-board ESP32 Telnet/SSH honeypot with optional OLED/TFT
 // feedback, captive portal,
 // asciinema recording, and threat-intelligence reporting.
 //
@@ -37,7 +37,7 @@
 #include "attacker_gate.h"
 #include "restart_reason.h"
 
-using namespace honeyopus;
+using namespace honeymire;
 
 // Last-resort guard. AsyncWebServer / mbedTLS / ArduinoJson all use plain
 // `new` and don't catch std::bad_alloc. When heap runs out, the unhandled
@@ -50,7 +50,7 @@ using namespace honeyopus;
 // and assert (lock_acquire_generic / xQueueTakeMutexRecursive). Use
 // ets_printf which writes to the ROM UART driver directly and is safe in
 // any context.
-static void honeyopus_new_handler() {
+static void honeymire_new_handler() {
     ets_printf("[heap] OOM new_handler free=%u largest=%u — restart\n",
                (unsigned)ESP.getFreeHeap(),
                (unsigned)ESP.getMaxAllocHeap());
@@ -66,7 +66,7 @@ void setup() {
     // had a stable serial path.
     Serial.setRxBufferSize(512);
     Serial.begin(115200);
-#if ARDUINO_USB_CDC_ON_BOOT && !defined(HONEYOPUS_BOARD_KIND_S3_N16R8)
+#if ARDUINO_USB_CDC_ON_BOOT && !defined(HONEYMIRE_BOARD_KIND_S3_N16R8)
     // HWCDC blocks on TX when the host hasn't opened the port yet. Drop
     // characters instead of stalling the loop task — much safer for a
     // headless honeypot that may run for weeks without anyone attached.
@@ -78,9 +78,9 @@ void setup() {
     }
 #endif
     delay(150);
-    std::set_new_handler(honeyopus_new_handler);
+    std::set_new_handler(honeymire_new_handler);
     Serial.println();
-    Serial.println("==== HoneyOpus booting (" HONEYOPUS_BOARD_NAME ") ====");
+    Serial.println("==== HoneyMire booting (" HONEYMIRE_BOARD_NAME ") ====");
     restart::log_on_boot();
     restart::breadcrumb_log_on_boot();
     restart::breadcrumb("setup");

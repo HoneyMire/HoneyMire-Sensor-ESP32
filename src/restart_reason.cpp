@@ -3,7 +3,7 @@
 #include <Preferences.h>
 #include <esp_attr.h>
 
-namespace honeyopus {
+namespace honeymire {
 namespace restart {
 
 // RTC slow-memory breadcrumb. Marked RTC_NOINIT_ATTR so it survives a
@@ -144,4 +144,4 @@ void breadcrumb_log_on_boot() {
 }
 
 } // namespace restart
-} // namespace honeyopus
+} // namespace honeymire

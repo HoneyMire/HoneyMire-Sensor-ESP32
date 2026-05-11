@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Telnet server personas — each represents a distinct device/OS that attackers
 // expect to find on the honeypot. Randomly selected per connection.
@@ -43,4 +43,4 @@ const PersonaProfile& telnet_persona_profile(TelnetPersona p);
 // Get the name of a persona as a string (e.g., "Ubuntu", "BusyBox").
 const char* telnet_persona_name(TelnetPersona p);
 
-} // namespace honeyopus
+} // namespace honeymire

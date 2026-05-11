@@ -6,7 +6,7 @@
 #include <freertos/semphr.h>
 #include <functional>
 
-namespace honeyopus {
+namespace honeymire {
 
 struct AttackEntry {
     uint32_t id = 0;            // monotonically increasing
@@ -96,4 +96,4 @@ private:
 
 extern AttackLog g_attack_log;
 
-} // namespace honeyopus
+} // namespace honeymire

@@ -2,7 +2,7 @@
 
 #include "attack_log.h"
 
-namespace honeyopus {
+namespace honeymire {
 
 // Returns one of: "mirai", "iot-loader", "scanner", "scripted", "manual",
 // "recon-script", "creds-only", "creds-probe", "lan", "unknown".
@@ -21,4 +21,4 @@ void classify_attack(AttackEntry& e,
 struct ProfileVisual { const char* icon; const char* alt; };
 ProfileVisual profile_visual(const String& label);
 
-} // namespace honeyopus
+} // namespace honeymire

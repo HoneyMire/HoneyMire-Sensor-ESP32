@@ -9,7 +9,7 @@
 #include "storage.h"
 #include "attacker_gate.h"
 
-#if HONEYOPUS_ENABLE_SSH
+#if HONEYMIRE_ENABLE_SSH
 
 #include <WiFi.h>
 #include <LittleFS.h>
@@ -24,7 +24,7 @@
 #include <libssh/server.h>
 #include <libssh/callbacks.h>
 
-namespace honeyopus {
+namespace honeymire {
 
 // Per-session inactivity ceiling. libssh's blocking ssh_message_get / recv
 // has no built-in timeout, so a slow-loris attacker (TCP connect, finish
@@ -552,7 +552,7 @@ static void ssh_listener_task(void*) {
     ssh_init();
 
     ssh_bind sshbind = ssh_bind_new();
-    int port = HONEYOPUS_SSH_PORT;
+    int port = HONEYMIRE_SSH_PORT;
     int log_verb = SSH_LOG_WARNING;
     int process_config = 0;   // do NOT try to read /etc/ssh/libssh_server_config
     auto& cfg = g_config.get();
@@ -611,7 +611,7 @@ static void ssh_listener_task(void*) {
         // On boards with PSRAM (S3 N16R8 / T-QT Pro) the gate is unnecessary:
         // libssh+mbedtls allocate from the unified heap which is plenty
         // large. We skip the check entirely there.
-#if !HONEYOPUS_HAS_PSRAM
+#if !HONEYMIRE_HAS_PSRAM
         {
             size_t largest = ESP.getMaxAllocHeap();
             if (largest < 55 * 1024) {
@@ -690,11 +690,11 @@ void ssh_begin() {
     xTaskCreatePinnedToCore(ssh_listener_task, "ssh", 16384, nullptr, 1, nullptr, tskNO_AFFINITY);
 }
 
-} // namespace honeyopus
+} // namespace honeymire
 
-#else // HONEYOPUS_ENABLE_SSH
+#else // HONEYMIRE_ENABLE_SSH
 
-namespace honeyopus {
+namespace honeymire {
 void ssh_begin() {}
 bool ssh_hostkey_ready()    { return false; }
 bool ssh_listener_running() { return false; }

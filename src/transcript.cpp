@@ -1,6 +1,6 @@
 #include "transcript.h"
 
-namespace honeyopus {
+namespace honeymire {
 
 // JSON-string body escape — strict-ASCII subset.
 //
@@ -65,7 +65,7 @@ bool Transcript::begin(const String& path, const TranscriptHeader& hdr) {
     // Header — strict ASCII, one key:value per line. Order chosen
     // for human-readability when the transcript is opened in a
     // text editor; parsers ignore order.
-    f_.print("HONEYOPUS-TRANSCRIPT/1\n");
+    f_.print("HONEYMIRE-TRANSCRIPT/1\n");
     f_.print("session:");       f_.print(hdr.session_id);            f_.print('\n');
     f_.print("proto:");         f_.print(hdr.proto);                 f_.print('\n');
     if (hdr.persona.length()) {
@@ -105,4 +105,4 @@ void Transcript::close() {
     }
 }
 
-} // namespace honeyopus
+} // namespace honeymire

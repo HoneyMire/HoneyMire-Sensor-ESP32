@@ -4,7 +4,7 @@
 #include <vector>
 #include "telnet_persona.h"
 
-namespace honeyopus {
+namespace honeymire {
 
 // Medium-interaction Ubuntu 18.04 command emulator. The goal is not a real
 // shell, but to keep simple bots / brute-force scripts engaged long enough to
@@ -253,4 +253,4 @@ private:
     bool in_busybox_call_ = false;
 };
 
-} // namespace honeyopus
+} // namespace honeymire
