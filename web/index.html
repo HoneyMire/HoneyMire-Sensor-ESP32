@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>HoneyMire · Web Installer</title>
-<meta name="description" content="Flash the HoneyMire ESP32 honeypot firmware right from your browser. Supports ESP32-C3 SuperMini, LilyGO T-QT Pro and ESP32-S3 N16R8."/>
+<meta name="description" content="Flash the HoneyMire ESP32 honeypot firmware right from your browser. Supports generic ESP32/WROOM boards, ESP32-C3 SuperMini, LilyGO T-QT Pro, generic ESP32-S3 and ESP32-S3 N16R8."/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%8D%AF%3C/text%3E%3C/svg%3E"/>
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 <style>
@@ -55,7 +55,7 @@ footer a{color:#7ad9ff}
   <h1><span class="em">🍯</span>HoneyMire</h1>
   <p class="tag">An ESP32 SSH/Telnet honeypot — installable from your browser.</p>
   <div class="badges">
-    <span class="badge">Targets: <b>ESP32-C3 · ESP32-S3</b></span>
+    <span class="badge">Targets: <b>ESP32 · ESP32-C3 · ESP32-S3</b></span>
     <span class="badge">Build: <b id="b-ver">latest</b></span>
     <span class="badge">Built: <b id="b-date">—</b></span>
   </div>
@@ -68,6 +68,14 @@ footer a{color:#7ad9ff}
   <p class="meta">Plug it in via USB, then choose the matching tile. The flasher
      will use the right partition layout and serial routing for that hardware.</p>
   <div class="boards" role="radiogroup" aria-label="Target board">
+    <div class="board" data-board="esp32" data-manifest="manifest-esp32-generic.json" role="radio" tabindex="0" aria-checked="false">
+      <span class="check" aria-hidden="true">✓</span>
+      <span class="glyph">🔌</span>
+      <span class="chip">ESP32 · 4 MB</span>
+      <span class="name">Generic ESP32 / WROOM</span>
+      <p class="desc">Headless ESP32-WROOM, esp32dev and AZ-Delivery DevKit V4-class
+         boards. Pick this for classic ESP32 modules, not S3 or C3 boards.</p>
+    </div>
     <div class="board" data-board="c3" data-manifest="manifest-c3.json" role="radio" tabindex="0" aria-checked="false">
       <span class="check" aria-hidden="true">✓</span>
       <span class="glyph">📟</span>
@@ -83,6 +91,14 @@ footer a{color:#7ad9ff}
       <span class="name">LilyGO T-QT Pro</span>
       <p class="desc">Pocket-sized S3 with a 128×128 colour IPS panel and a
          boot button. Nice live status display while the honeypot runs.</p>
+    </div>
+    <div class="board" data-board="s3generic" data-manifest="manifest-s3-generic.json" role="radio" tabindex="0" aria-checked="false">
+      <span class="check" aria-hidden="true">✓</span>
+      <span class="glyph">📡</span>
+      <span class="chip">ESP32-S3 · 4 MB · no PSRAM</span>
+      <span class="name">Generic ESP32-S3 (headless)</span>
+      <p class="desc">Broad-compatible S3 image: DIO flash, no display and no PSRAM
+         requirement. Good first choice for unknown ESP32-S3 dev boards.</p>
     </div>
     <div class="board" data-board="n16r8" data-manifest="manifest-n16r8.json" role="radio" tabindex="0" aria-checked="false">
       <span class="check" aria-hidden="true">✓</span>

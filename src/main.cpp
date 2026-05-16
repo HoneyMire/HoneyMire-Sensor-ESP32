@@ -66,7 +66,7 @@ void setup() {
     // had a stable serial path.
     Serial.setRxBufferSize(512);
     Serial.begin(115200);
-#if ARDUINO_USB_CDC_ON_BOOT && !defined(HONEYMIRE_BOARD_KIND_S3_N16R8)
+#if ARDUINO_USB_CDC_ON_BOOT && !defined(HONEYMIRE_USE_UART0_SERIAL)
     // HWCDC blocks on TX when the host hasn't opened the port yet. Drop
     // characters instead of stalling the loop task — much safer for a
     // headless honeypot that may run for weeks without anyone attached.

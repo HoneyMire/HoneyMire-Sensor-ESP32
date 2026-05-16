@@ -1,8 +1,9 @@
 # HoneyMire 🍯
 
-A pocket-sized **Telnet + SSH honeypot** for ESP32 boards (C3 SuperMini with
-the built-in 0.42" OLED, LilyGO T-QT Pro with a 128×128 colour IPS, or a
-headless S3-N16R8 module). Records every captured session as an
+A pocket-sized **Telnet + SSH honeypot** for ESP32 boards (generic
+ESP32/WROOM dev boards, C3 SuperMini with the built-in 0.42" OLED, LilyGO T-QT
+Pro with a 128×128 colour IPS, generic headless ESP32-S3 boards, or a headless
+S3-N16R8 module). Records every captured session as an
 [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/), classifies the
 attacker (Mirai bot, IoT loader, manual operator, …), geolocates them, and
 optionally submits the IP to **AbuseIPDB**, **AlienVault OTX**, **DShield** and a
@@ -10,31 +11,40 @@ self-hosted **HoneyMire Hub** in the
 background. A web dashboard, captive-portal Wi-Fi setup, and serial CLI are
 bundled in.
 
+HoneyMire Hub reporting follows the canonical
+[`honeymire.attack/v1` protocol](https://github.com/HoneyMire/HoneyMire-Protocol),
+shared by the ESP32 firmware, the Go software sensor, and first-party client
+libraries.
+
 > Vibe-coded end-to-end with the help of AI — every line in this repo was
 > generated, reviewed and shaped through an iterative pair-programming dance.
 > File issues if anything looks off and I'll feed them back into the loop.
 
 ## ✨ Install from your browser
 
-Plug an ESP32-C3 SuperMini, LilyGO T-QT Pro or ESP32-S3 N16R8 into a USB
+Plug an ESP32 dev board, ESP32-C3 SuperMini, LilyGO T-QT Pro, generic ESP32-S3 or ESP32-S3 N16R8 into a USB
 port and head to
 **[honeymire.github.io/HoneyMire](https://honeymire.github.io/HoneyMire/)**.
 Click *Connect*, pick the serial port, and the latest firmware is flashed in
-seconds — no toolchain, no `pio`, no drivers beyond the stock USB-CDC. ESP
-Web Tools auto-detects the chip family and picks the matching image.
+seconds — no toolchain and no `pio`. Choose the matching board tile first:
+classic ESP32/WROOM boards use the `ESP32 Generic` image, while S3 boards use
+one of the ESP32-S3 images. Some classic ESP32 boards may still need the usual
+CH340/CP210x USB-serial driver on your computer.
 
 The flasher uses [ESP Web Tools](https://esphome.github.io/esp-web-tools/) and
 works in Chrome, Edge and Opera on a desktop computer.
 
 ## Hardware
 
-HoneyMire targets three boards out of the box. Pick one and PlatformIO will
+HoneyMire targets five board profiles out of the box. Pick one and PlatformIO will
 wire up the right display driver, partition table and concurrency caps.
 
 | Build env (`-e`) | Chip | Flash / RAM / PSRAM | Display | Telnet cap | Notes |
 |---|---|---|---|---|---|
+| `esp32-generic` (`esp32dev`, `esp32-wroom`, `az-delivery-devkit-v4`) | ESP32 | 4 MB / 520 KB / — | headless | 4 | Generic ESP32-WROOM / `esp32dev` / AZ-Delivery DevKit V4-class boards. Broadest choice for classic ESP32 boards; SSH defaults off but can be enabled from the dashboard or serial menu. |
 | `esp32-c3-oled` *(default)* | ESP32-C3 | 4 MB / 400 KB / — | SSD1306 72×40 mono OLED (I²C GPIO 5/6) | 3 | 01Space SuperMini-class. Heap-tight; SSH gated by free-largest. |
 | `lilygo-t-qt-pro` | ESP32-S3 | 4 MB / 512 KB / 2 MB QSPI | 128×128 colour IPS, ST7735-class controller (LovyanGFX) | 6 | LilyGO T-QT Pro. Boot button on GPIO 0. The panel is widely advertised as GC9107 but in practice responds to ST7735-family commands — `src/display.cpp` ships a custom init ported from a known-good native ESP-IDF driver. |
+| `esp32-s3-generic` | ESP32-S3 | 4 MB / 512 KB / — | headless | 4 | Generic no-PSRAM ESP32-S3 dev boards/modules. Best first choice for broad compatibility: DIO flash, no display, no PSRAM requirement. |
 | `esp32-s3-n16r8` | ESP32-S3 | 16 MB / 512 KB / 8 MB OPI | headless | 8 | Generic N16R8 module. Best honeypot capacity, no UI. Uses `partitions_16mb.csv`. |
 
 Common to all: boot button (`GPIO 9` on C3, `GPIO 0` on S3) acts as the
@@ -44,11 +54,23 @@ function button when the board has one.
 
 ```sh
 pio run                          # default env (esp32-c3-oled)
+pio run -e esp32-generic         # generic classic ESP32 / WROOM dev board
+pio run -e az-delivery-devkit-v4 # alias for classic ESP32 DevKit V4 boards
 pio run -e lilygo-t-qt-pro       # LilyGO T-QT Pro
+pio run -e esp32-s3-generic      # generic 4 MB ESP32-S3, no PSRAM/display
 pio run -e esp32-s3-n16r8        # generic ESP32-S3 N16R8
 
 pio run -e <env> -t upload       # build + flash
 pio device monitor               # serial console (115200 baud)
+```
+
+For classic ESP32 DevKit / WROOM boards on macOS, the `esp32-generic` aliases
+prefer `/dev/cu.usbserial*` so PlatformIO does not accidentally upload to a
+different USB board. If your ESP32 appears under another port name, pass it
+explicitly:
+
+```sh
+pio run -e esp32-generic -t upload --upload-port /dev/cu.SLAB_USBtoUART
 ```
 
 The first SSH connection after a fresh flash takes ~30 seconds while the
@@ -175,8 +197,9 @@ never blocked. Each captured attack triggers:
    *Hub URL* and *Hub token* in *Config*. Unlike AbuseIPDB/OTX/DShield, the
    Hub **does** receive LAN attacks (so you can validate your setup).
    Token format is `hop_` + 32 base64url chars. 
-   See the [`docs/`](https://honeymire.org/docs) for the protocol and available 
-   client libraries.
+   See the
+   [`HoneyMire-Protocol`](https://github.com/HoneyMire/HoneyMire-Protocol)
+   repository for the canonical protocol and available client libraries.
 
 The first four are off by default. Enable them in *Config* and paste your
 API keys. **Attacks coming from LAN/private IPs are never reported** to

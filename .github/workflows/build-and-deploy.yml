@@ -39,7 +39,7 @@ jobs:
         run: pip install --upgrade platformio esptool
 
       - name: Build firmware (all boards)
-        run: pio run -e esp32-c3-oled -e lilygo-t-qt-pro -e esp32-s3-n16r8
+        run: pio run -e esp32-generic -e esp32-c3-oled -e lilygo-t-qt-pro -e esp32-s3-generic -e esp32-s3-n16r8
 
       - name: Compose web-flasher site
         env:
@@ -70,9 +70,11 @@ jobs:
               0xe000   "$BOOT_APP0" \
               0x10000  "$build/firmware.bin"
           }
-          merge esp32-c3-oled    esp32c3 firmware-esp32c3.bin       4MB
-          merge lilygo-t-qt-pro  esp32s3 firmware-esp32s3-tqtpro.bin 4MB
-          merge esp32-s3-n16r8   esp32s3 firmware-esp32s3-n16r8.bin 16MB
+          merge esp32-generic    esp32   firmware-esp32-generic.bin   4MB
+          merge esp32-c3-oled    esp32c3 firmware-esp32c3.bin         4MB
+          merge lilygo-t-qt-pro  esp32s3 firmware-esp32s3-tqtpro.bin  4MB
+          merge esp32-s3-generic esp32s3 firmware-esp32s3-generic.bin 4MB
+          merge esp32-s3-n16r8   esp32s3 firmware-esp32s3-n16r8.bin   16MB
 
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SHORT_SHA=${GIT_SHA::7}
@@ -102,9 +104,11 @@ jobs:
           }
           JSON
           }
-          write_manifest manifest-c3.json     firmware-esp32c3.bin         ESP32-C3
-          write_manifest manifest-tqtpro.json firmware-esp32s3-tqtpro.bin  ESP32-S3
-          write_manifest manifest-n16r8.json  firmware-esp32s3-n16r8.bin   ESP32-S3
+          write_manifest manifest-esp32-generic.json firmware-esp32-generic.bin   ESP32
+          write_manifest manifest-c3.json            firmware-esp32c3.bin         ESP32-C3
+          write_manifest manifest-tqtpro.json        firmware-esp32s3-tqtpro.bin  ESP32-S3
+          write_manifest manifest-s3-generic.json    firmware-esp32s3-generic.bin ESP32-S3
+          write_manifest manifest-n16r8.json         firmware-esp32s3-n16r8.bin   ESP32-S3
 
           # Combined manifest kept for backwards-compat / direct linking.
           cat > site/manifest.json <<JSON
@@ -116,6 +120,12 @@ jobs:
             "new_install_prompt_erase": true,
             "builds": [
               {
+                "chipFamily": "ESP32",
+                "parts": [
+                  { "path": "firmware-esp32-generic.bin", "offset": 0 }
+                ]
+              },
+              {
                 "chipFamily": "ESP32-C3",
                 "parts": [
                   { "path": "firmware-esp32c3.bin", "offset": 0 }
@@ -124,7 +134,7 @@ jobs:
               {
                 "chipFamily": "ESP32-S3",
                 "parts": [
-                  { "path": "firmware-esp32s3-tqtpro.bin", "offset": 0 }
+                  { "path": "firmware-esp32s3-generic.bin", "offset": 0 }
                 ]
               }
             ]
